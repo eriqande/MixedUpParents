@@ -1,0 +1,196 @@
+---
+title: "Mathematical Exploration"
+output: html_notebook
+---
+
+\newcommand{\thh}{^\mathrm{th}}
+
+Here we start exploring how we might formulate a model for parentage
+inference in an admixed population.
+
+We will start off by considering marginal probabilities at a single
+locus, and after that will start thinking about dealing with multiple
+linked markers.
+
+# Marginal probabilities
+
+We have a candidate parent with estimated admixture fraction
+$q_c = (q_{c,1},\ldots, q_{c,K})$ and a candidate offspring with estimated admixture fraction
+$q_o= (q_{o,1},\ldots, q_{o,K})$.  We will allow that individuals may have ancestry from $K$
+different sources (and we assume a structure-like model for that).
+At the locus under consideration, we will assume $A$ alleles, labelled
+$a_1,\ldots, a_A$. We let $p_k(a_j)$ denote the frequency of allele
+$a_j$ in subpopulation $k$.  
+
+When we refer to the genotype of an individual at a locus we will use, for example,
+$y_c = (y_{c,1}, y_{c,2})$.  And we refer to the frequency of those alleles
+in population $k$ using $p_k(y_{c,1})$.
+
+Note that we will assume that the two gene copies in any individual are ordered.
+This could be just the order that they appear in the data set, but, nonetheless,
+we will consistently do that.  (So, factors of 2 don't appear in heterozygous
+genotype probabilities, and we shall have to be sure to factor this into our
+calculations for transmission probabilities.)
+
+We will also introduce a latent variable $z = (z_1, z_2)$ for the subpopulation of origin
+of each of the two gene copies in an individual.  Thus,
+$z = (z_1, z_k) = (k, k^*)$ would indicate that gene copy 1 of the individual
+was from population $k$, and gene copy two was from population $k^*$.
+
+
+
+
+## Single genotype probability
+
+For any individual with admixture fraction $q = (q_{1},\ldots, q_{K})$ and genotype
+$y = (y_1, y_2)$, at a single locus, the probability of their ordered genotype, _if
+$z$ were known_ would simply be:
+$$
+P(y|z, p) = p_{z_1}(y_1) p_{z_2}(y_2)
+$$
+If $z$ is not known (and it typically will not be known), the marginal probability
+of the genotype can be written by summing over the possible values of $q$.
+This boils down to:
+$$
+\begin{aligned}
+P(y |q, p) = \sum_{z} \biggl[P(y|z,p) P(z|q)\biggr]
+\end{aligned}.
+$$
+$P(z|q)$ may be a joint distribution of the two components, $z_1$, and $z_2$ of
+$z$, which would accommodate, for example, the situation in which the individual
+is an F1 hybrid.
+
+Under the standard _structure_ model, however, $z_1$ and $z_2$ are independent
+of one another, in which case the above becomes:
+$$
+P(y |q, p) = \biggl[\sum_{z_1 = 1}^K p_{z_1}(y_1)q_{z_1}\biggr]\biggl[\sum_{z_2 = 1}^K p_{z_2}(y_2)q_{z_2}\biggr]
+$$
+But, we can already tell that this won't be exactly what we want.
+
+## Single genotype probability of a parent and offspring
+
+We now move on to start thinking about how we would compute the
+joint probability of the genotypes of a parent and offspring.
+
+Once again, we will start with the case where we know $z$.
+
+We can start with the probability of the parent, which will be:
+$$
+P(y_c|z_c, p) = p_{z_{c,1}}(y_{c,1})p_{z_{c,2}}(y_{c,2}).
+$$
+
+Now, if this is a parent offspring pair, there are effectively four cases
+for transmission of genes that
+we will enumerate here (we treat them each, explicitly, because doing so will, I hope,
+lead me to some nice ways to start thinking about linked markers):
+
+1. $c$'s gene copy 1 gets transmitted to be $o$'s gene copy 1, and the allelic
+   type of $o$'s gene copy 2 is drawn randomly from subpopulation $z_{o,2}$
+2. $c$'s gene copy 2 gets transmitted to be $o$'s gene copy 1, and the allelic
+   type of $o$'s gene copy 2 is drawn randomly from subpopulation $z_{o,2}$
+3. $c$'s gene copy 1 gets transmitted to be $o$'s gene copy 2, and the allelic
+   type of $o$'s gene copy 1 is drawn randomly from subpopulation $z_{o,1}$
+4. $c$'s gene copy 2 gets transmitted to be $o$'s gene copy 2, and the allelic
+   type of $o$'s gene copy 1 is drawn randomly from subpopulation $z_{o,1}$
+
+
+And, once the transmission of all this stuff is done, there is the issue that these
+alleles/genotypes might be observed with error.  
+
+We could try to deal with that in a comprehensive fashion allowing for a wide
+variety of genotyping error models, but that would ultimately mean a lot of summing
+over unobserved genotypes, and we are already going to have our work cut out for us
+in terms of computation, once we start dealing with physical linkage, so I think
+it might be best to just go for something super-simple, like the EAT-special:
+with probability $(1-\epsilon)$ there is not genotyping error, and with probability
+$\epsilon$, the observed genotype is obtained by drawing alleles from the population(s) 
+according to the $z$'s.  That will certainly be easier to implement.
+
+As I write this stuff out, I am always thinking that maybe we should just stick to
+biallelic markers, but for now we will forge ahead with multiallelic markers...
+
+At any rate, the four cases above can be indicated by the two-vector
+$s \in \{(1,1),\ (2,1),\ (1,2),\ (2,2)\}$, where $(i,j)$ indicates that
+gene copy $i$ from the parent was transmitted to the offspring, and is the
+offspring's gene copy $j$. But, as I think further about this, it seems like
+it would be inefficient to always sum over these and zero some of them out
+if the $z$'s don't match up (i.e., with an indicator function).  Instead,
+we will only sum over the ones that would be consistent.  But, I guess that
+we still have all of these case in there...
+
+So, anyways, if we have observed $y_c$ and $q_c$ and $y_o$ and $q_o$ (or, instead
+of $q$ something that might indicate a joint function of the two $z$'s), then we
+can go after computing this stuff.  Note that, since we are not going to be bothered
+about jointly inferring more than one offspring, we can, without too much
+concern, just declare that mismatches between the parent and the offspring
+genotypes occur because of genotyping error in the offspring.
+
+So, the first part of our sum in all this will be the sum over $z$'s in the
+parent:
+$$
+ \sum_{z_c} \biggl[P(y_c|z_c,p) P(z_c|q)\biggr]
+$$
+and then, for each value of $z_c$, we consider the sum over the four possible values of
+$s$.  Each one of those fixes one of the $z$ values for the offspring, but the other
+one is welcome to be any of the $K$ possible values.  So, the number of different
+states that we are dealing with here is on the order of
+$K \times K \times 4 \times K$. So, not so bad if $K=2$ (32) or $K=3$ (108), but
+it blows up quickly with more populations.  Also, if we ultimately start putting this
+into a hidden Markov model, then, unless we can rule out certain situations (like
+both $z$'s changing at once), we could run into some difficulties, even with $K = 3$.
+
+But, this does get us in a good place to start thinking about dealing with
+physical linkage.
+
+## A word on junctions
+
+In the mid-twentieth century Fisher developed his theory of junctions.  This is
+quite useful for us, for thinking about the occurrrence of points where the
+ancestry on a chromosome changes from one species to another.  The full theory is
+apparently quite daunting, but I think that we could come up with a pretty
+reasonable modification for making a Markovian approximation.  
+
+The basic gist is that an _external junction_, which in this context is one
+at which the ancestry goes from being steelhead to cutthroat, or cutthroat to
+steelhead, is formed when a recombination occurs during meiosis at a point where
+the two chromosomes involved in the meiosis have different ancestries (one cutthroat
+and the other steelhead).
+
+So, the expected number of such new, external junctions after a meiosis should be
+proportional to the expected fraction of chromosome length at which the two
+chromosomes have different ancestry.  In an F1, that fraction is 1.0.  In a BX1
+that fraction is 0.5.  In a BX2, that fraction is 0.25.  
+
+If old junctions remain in the transmitted chromosome, then the total expected
+number of junctions will be proportional to 
+
+- 0 in a single chromosome from an F1
+- 1 in a single chromosome from a BX.
+- 1 in a single chromosome from on F2.
+- 1 + 0.5 = 1.5 in a single chromosome from a BX2
+
+and so forth.  
+
+So, those are proportional amounts, and for the total number we need to know the
+gnetic map for the chromosome.  
+
+So, once we get the expected number of external junctions here (using the total
+map length), then we would propose that such junctions occur as a Poisson process.
+The total rate of encountering an external junction must be what we need it to be,
+but we would need to tweak the rates of the different directions of junctions so
+that the expected fraction of different ancestries (cutt or steelhead in this
+example) are what they should be.
+
+Having two independent versions of that process going on upon the two
+different chromosomes within a diploid will then induce a process along
+the pair of chromosomes that counts the number of Steelhead (for example)
+alleles, which can be 0, 1, or 2.  That is ultimately the process that
+we want to model for hybrid inference.  And it probably has to be augmented
+to handle the parentage.
+
+But, I should play around with a simple Markov model like this and see how
+the distribution of ancestry tract lengths compares between it and the simulations
+from gscramble.  
+
+
+

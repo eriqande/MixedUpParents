@@ -1,0 +1,41 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+library(tidyverse)
+
+all_wide <- list(
+  RBT = read_csv("data/new10/RBT_allele_counts.csv"),
+  WCT = read_csv("data/new10/WCT_allele_counts.csv"),
+  YCT = read_csv("data/new10/YCT_allele_counts.csv")
+) %>%
+  bind_rows(.id = "diag_spp")
+
+# now, we want to have columns of:
+
+# indiv, chrom, pos, spp_diag, n
+
+diag_markers_10_fish <- all_wide %>%
+  select(-...1) %>%
+  rename(
+    chrom = CHR,
+    pos = POS
+  ) %>%
+  pivot_longer(
+    cols = -c(diag_spp, chrom, pos),
+    values_to = "n",
+    names_to = "indiv"
+  ) %>%
+  select(
+    diag_spp, indiv, chrom, pos, n
+  ) %>%
+  arrange(
+    indiv, chrom, pos, diag_spp
+  )
+
+save(diag_markers_10_fish, file = "../data/diag_markers_10_fish.rda", compress = "xz")
+
+```
