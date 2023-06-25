@@ -1754,13 +1754,32 @@ display: none;
 <!-- rnb-text-begin -->
 <!-- rnb-text-end -->
 <!-- rnb-chunk-begin -->
-<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuc2F2ZShkaWFnX21hcmtlcnNfMTBfZmlzaCwgXCIuLi9kaWFnX21hcmtlcnNfMTBfZmlzaC5yZGFcIiwgY29tcHJlc3MgPSBcInh6XCIpXG5cbmBgYCJ9 -->
-<pre class="r"><code>save(diag_markers_10_fish, &quot;../diag_markers_10_fish.rda&quot;, compress = &quot;xz&quot;)
+<!-- rnb-source-begin eyJkYXRhIjoiYGBgclxuYWxsX3dpZGUgPC0gbGlzdChcbiAgUkJUID0gcmVhZF9jc3YoXCJkYXRhL25ldzEwL1JCVF9hbGxlbGVfY291bnRzLmNzdlwiKSxcbiAgV0NUID0gcmVhZF9jc3YoXCJkYXRhL25ldzEwL1dDVF9hbGxlbGVfY291bnRzLmNzdlwiKSxcbiAgWUNUID0gcmVhZF9jc3YoXCJkYXRhL25ldzEwL1lDVF9hbGxlbGVfY291bnRzLmNzdlwiKVxuKSAlPiVcbiAgYmluZF9yb3dzKC5pZCA9IFwiZGlhZ19zcHBcIilcblxuYGBgIn0= -->
+<pre class="r"><code>all_wide &lt;- list(
+  RBT = read_csv(&quot;data/new10/RBT_allele_counts.csv&quot;),
+  WCT = read_csv(&quot;data/new10/WCT_allele_counts.csv&quot;),
+  YCT = read_csv(&quot;data/new10/YCT_allele_counts.csv&quot;)
+) %&gt;%
+  bind_rows(.id = &quot;diag_spp&quot;)
 </code></pre>
 <!-- rnb-source-end -->
-<!-- rnb-output-begin eyJkYXRhIjoiRXJyb3IgaW4gc2F2ZShkaWFnX21hcmtlcnNfMTBfZmlzaCwgXCIuLi9kaWFnX21hcmtlcnNfMTBfZmlzaC5yZGFcIiwgY29tcHJlc3MgPSBcInh6XCIpIDogXG4gIG9iamVjdCDigJguLi9kaWFnX21hcmtlcnNfMTBfZmlzaC5yZGHigJkgbm90IGZvdW5kXG4ifQ== -->
-<pre><code>Error in save(diag_markers_10_fish, &quot;../diag_markers_10_fish.rda&quot;, compress = &quot;xz&quot;) : 
-  object ‘../diag_markers_10_fish.rda’ not found</code></pre>
+<!-- rnb-output-begin eyJkYXRhIjoiTmV3IG5hbWVzOlJvd3M6IDgzOSBDb2x1bW5zOiAxM+KUgOKUgCBDb2x1bW4gc3BlY2lmaWNhdGlvbiDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIBcbkRlbGltaXRlcjogXCIsXCJcbmNociAgKDEpOiBDSFJcbmRibCAoMTIpOiAuLi4xLCBQT1MsIEdyb3d0aF9PY0xTMTVfMDgsIE9jTEYxN18wNTAsIE9jTEYxN18xMTUsIE9jTEYxN18xMzQsIE9jTEYxNV8xNTksIE9jTGFuUzE3XzAwNCwgT2NMYW5TMTdfLi4uXG7ihLkgVXNlIGBzcGVjKClgIHRvIHJldHJpZXZlIHRoZSBmdWxsIGNvbHVtbiBzcGVjaWZpY2F0aW9uIGZvciB0aGlzIGRhdGEuXG7ihLkgU3BlY2lmeSB0aGUgY29sdW1uIHR5cGVzIG9yIHNldCBgc2hvd19jb2xfdHlwZXMgPSBGQUxTRWAgdG8gcXVpZXQgdGhpcyBtZXNzYWdlLk5ldyBuYW1lczpSb3dzOiAyNzYgQ29sdW1uczogMTPilIDilIAgQ29sdW1uIHNwZWNpZmljYXRpb24g4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSAXG5EZWxpbWl0ZXI6IFwiLFwiXG5jaHIgICgxKTogQ0hSXG5kYmwgKDEyKTogLi4uMSwgUE9TLCBHcm93dGhfT2NMUzE1XzA4LCBPY0xGMTdfMDUwLCBPY0xGMTdfMTE1LCBPY0xGMTdfMTM0LCBPY0xGMTVfMTU5LCBPY0xhblMxN18wMDQsIE9jTGFuUzE3Xy4uLlxu4oS5IFVzZSBgc3BlYygpYCB0byByZXRyaWV2ZSB0aGUgZnVsbCBjb2x1bW4gc3BlY2lmaWNhdGlvbiBmb3IgdGhpcyBkYXRhLlxu4oS5IFNwZWNpZnkgdGhlIGNvbHVtbiB0eXBlcyBvciBzZXQgYHNob3dfY29sX3R5cGVzID0gRkFMU0VgIHRvIHF1aWV0IHRoaXMgbWVzc2FnZS5OZXcgbmFtZXM6Um93czogMjUzIENvbHVtbnM6IDEz4pSA4pSAIENvbHVtbiBzcGVjaWZpY2F0aW9uIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgFxuRGVsaW1pdGVyOiBcIixcIlxuY2hyICAoMSk6IENIUlxuZGJsICgxMik6IC4uLjEsIFBPUywgR3Jvd3RoX09jTFMxNV8wOCwgT2NMRjE3XzA1MCwgT2NMRjE3XzExNSwgT2NMRjE3XzEzNCwgT2NMRjE1XzE1OSwgT2NMYW5TMTdfMDA0LCBPY0xhblMxN18uLi5cbuKEuSBVc2UgYHNwZWMoKWAgdG8gcmV0cmlldmUgdGhlIGZ1bGwgY29sdW1uIHNwZWNpZmljYXRpb24gZm9yIHRoaXMgZGF0YS5cbuKEuSBTcGVjaWZ5IHRoZSBjb2x1bW4gdHlwZXMgb3Igc2V0IGBzaG93X2NvbF90eXBlcyA9IEZBTFNFYCB0byBxdWlldCB0aGlzIG1lc3NhZ2UuXG4ifQ== -->
+<pre><code>New names:Rows: 839 Columns: 13── Column specification ──────────────────────────────────────────────────────────────────────────────────────────
+Delimiter: &quot;,&quot;
+chr  (1): CHR
+dbl (12): ...1, POS, Growth_OcLS15_08, OcLF17_050, OcLF17_115, OcLF17_134, OcLF15_159, OcLanS17_004, OcLanS17_...
+ℹ Use `spec()` to retrieve the full column specification for this data.
+ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.New names:Rows: 276 Columns: 13── Column specification ──────────────────────────────────────────────────────────────────────────────────────────
+Delimiter: &quot;,&quot;
+chr  (1): CHR
+dbl (12): ...1, POS, Growth_OcLS15_08, OcLF17_050, OcLF17_115, OcLF17_134, OcLF15_159, OcLanS17_004, OcLanS17_...
+ℹ Use `spec()` to retrieve the full column specification for this data.
+ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.New names:Rows: 253 Columns: 13── Column specification ──────────────────────────────────────────────────────────────────────────────────────────
+Delimiter: &quot;,&quot;
+chr  (1): CHR
+dbl (12): ...1, POS, Growth_OcLS15_08, OcLF17_050, OcLF17_115, OcLF17_134, OcLF15_159, OcLanS17_004, OcLanS17_...
+ℹ Use `spec()` to retrieve the full column specification for this data.
+ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.</code></pre>
 <!-- rnb-output-end -->
 <!-- rnb-chunk-end -->
 

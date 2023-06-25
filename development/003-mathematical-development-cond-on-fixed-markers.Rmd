@@ -1,0 +1,81 @@
+---
+title: "Mathematical Explanations of the Approach Conditioning on the Ancestry Segments from Fixed Markers"
+output: html_notebook
+---
+
+
+\newcommand{\thh}{^\mathrm{th}}
+
+\newcommand{\bp}{\boldsymbol{p}}
+\newcommand{\bw}{\boldsymbol{w}}
+\newcommand{\by}{\boldsymbol{y}}
+
+
+# Latent variables notation
+
+
+
+This is all implicitly occurring on a single chromosome.  Any other processes on
+different chromosomes will be conditionally independent.  So, we do not denote
+chromosome here, for notational simplicity.  We index a site along a chromosome
+by $\ell$ with the two flanking sites indexed by $\ell-1$ and $\ell+1$, of course.
+
+$z_{\ell, 1}$ and $z_{\ell,2}$ denote the ancestry at site $\ell$ on the two homologous
+chromosomes within a diploid, where ancestry denotes which of $K$ distinct ancestral
+species or groups the chromosome might have come from. So, for example, we could
+write $z_{\ell, 1} = 1$, and $z_{\ell, 2} = K$. As a matter of convention, the two $z$'s are
+ordered, always, within an individual so that $z_{\ell,1}\leq z_{\ell,2}$. (I think that
+doing so will make things a little simpler and not get us into trouble later...I hope).
+
+The allelic types found on each of the two homologous chromosomes within an individual
+are denoted by $x_{\ell, 1}$ and $x_{\ell, 2}$ where it is understood that allele
+$x_{\ell, j}$ corresponds to the chromosome copy that has ancestry $z_{\ell, j}$.
+Typically, these $x_{\ell,j}$'s take two values for the two different alleles at a
+SNP---namely 0 for the reference allele and 1 for the alternate allele.  But, because
+we are dealing with multiple possible ancestries, there may be more alleles at a locus.
+In fact, we probably want to allow for multiple alleles, since we might end up wanting
+to use microhaplotypes for this.
+
+The alleles occur in different frequencies in the different ancestral groups. We
+will use $p_z(x_{\ell,j})$ to denote the relative frequency of allele $x_{\ell, j}$
+within ancestral group $z_{\ell, j}$.  In other words, assuming that the alleles
+are sampled from the ancestries according to the alleles' relative frequencies at site
+$\ell$ in the ancestries 
+$$
+P(x_{\ell, j} | z_{\ell, j}) = ~~~~,~~~~ j \in  \{1, 2\}
+$$
+These latent variable may occur within a specific individual.  When needed, we will
+use $x^{(i)}_{\ell, j}$ or $z^{(i)}_{\ell, j}$ to refer to the variable in individual $i$.
+Likewise, the allele frequency will be given by $p^{(i)}_z(x_{\ell,j})$.  The index $i$
+will take values of $C$ for candidate parent and $O$ for candidate offspring.
+
+# Observed variables
+
+The above are latent variables.  What we actually get to observe is a little less
+informative, but, of course, it is key to our efforts here!
+
+We are going to assume that the number of copies of each ancestry group is known
+at a site.  (Basically we will be conditioning upon an estimate of that made from
+diagnostic sites along each chromosome). So, let $\bw_\ell = (w_{\ell,1}, \ldots, w_{\ell,K})$ with
+each $w_{\ell,k} \in \{0,1,2\}$ and $\sum_{k=1}^K w_{\ell,k} = 2$.  
+
+
+And then, we also observe the genotype of the individual at the site. So, we take
+$\by_\ell = (y_{\ell, 1}, y_{\ell, 2})$ to be the _unordered_ pair of alleles
+observed in the genotype, unordered meaning that we don't know which of the pair
+of chromosomes each of those alleles is on.
+
+# Genotype probability (no genotyping error)
+
+If we assume that there is no genotyping error, then the probability of the observed
+data $\by_\ell$, given $\bw_\ell$ can be calculated by summing over the assignment
+of allelic types to the different ancestries.  First off, notice that any $\bw_\ell$
+uniquely determines $z_{\ell,1}$ and $z_{\ell,2}$, because of the way we force the
+order of the $z_{\ell,j}$'s.  So, let $z_{\ell,1}(w)$ and $z_{\ell, 2}(w)$ denote
+those two $z_{\ell,j}$'s that are determined by $w_ell$. 
+There are two cases. In the first, we have observed a homozygote, so
+$y_{\ell,1}=y_{\ell,2}$.   And we have
+$$
+P(\by_\ell | \bw_\ell) = 
+$$
+

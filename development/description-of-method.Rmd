@@ -1,0 +1,267 @@
+---
+title: "A description of the MixedUpParents method"
+author: "Eric C. Anderson"
+output: pdf_document
+date: "2023-06-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Herein we describe a method for conducting parentage inference within populations
+of individuals that are admixed between up to 3 species or subspecies.  The
+particular use case we have in mind is one in which parentage inference is to be
+done in populations with individuals admixed between westslope cutthroat trout,
+rainbow trout, and yellowstone cutthroat trout.  However, while describing it
+we will simply refer to three different subspecies or ancestries: $A$, $B$, and $C$.
+
+What is interesting about this problem is that there are two sets of markers.  The
+first set of markers are what we will call the "diagnostic" markers.  These are
+markers that carry one allele that is only found in one of the subspecies, in which it
+is fixed or nearly fixed, with the
+other allele (or alleles) being found in the remaining two subspecies.  Thus, there
+are diagnostic markers for $A$, and a separate set of diagnostic markers for $B$, and
+a third that are diagnostic for $C$.
+
+The second set of markers are those that segregate variation in one or more of the
+subspecies.  We can call these the "variable" markers.  It is worth pointing out
+that both of these sets of markers are useful for parentage inference in admixed
+populations.
+
+For doing parentage inference we do a two-step approach that makes it relatively
+easy to account for chromosomal segments of distinct ancestry in the individuals
+under study.
+
+In the first step, we use the diagnostic markers to identify genomic regions that
+carry $A$, $B$, or $C$ ancestry upon 0, 1, or 2 chromosomes.  The second step is
+done conditional on the inferred number of copies of different ancestry at each
+of the variable markers that is situated within a region for which the ancestry
+of both the candidate parent and offspring are inferred.  We will explain each of
+these steps in the following sections.
+
+
+# Inferring ancestral copy-number segments
+
+In order to infer the copy-number (0, 1, or 2) of different ancestries ($A$, $B$, or $C$)
+in genomic segments throughout the genome we use a simple heuristic rule to combine
+runs of diagnostic marker genotypes into segments. Taking the $A$-diagnostic markers
+for an example, at each $A$-diagnostic marker we observe either 0, 1, or 2 copies of the $A$-diagnostic
+allele.  After removing missing data, any two adjacent $A$-diagnostic markers
+(on the same chromosome, of course) with the
+same number of copies of $A$-diagnostic markers define an $A$-diagnostic segment
+with that number of copies.  For example, if two adjacent markers each show 2 copies
+of the $A$-diagnosic allele, then the segment between them is identified as having
+2 copies of the $A$-diagnostic allele.  A similar process is used to define $B$- and
+$C$-diagnostic segments.
+
+At the end of that first step we have a number of segments within an individual.
+We will let $A_x$, $x\in\{0,1,2\}$ denote the set of intervals within the genome
+at which the individual is identified to have $x$ copies of $A$ ancestry. $B_x$ and
+$C_x$ are sets defined similarly for $B$ and $C$ ancestry.  
+
+After doing this on the subset of individuals Jared gave me a while ago,
+and making a figure to visualize the results for those 10 individuals,
+it was clear that it would be advantageous (because the diagnostic markers for some
+subspecies might not be as widespread as those for another) to use the results for
+$B$ and $C$ to help infer $A$ segments as well---in other words, if you are at part of the
+genome where you don't have many $A$ markers, but you do have $B$- and $C$-diagnostic
+markers, and you see that you have zero $B$-diagnostic and zero $C$-diagnostic alleles at
+those markers, then
+it is reasonable to assume that you have 2 copies of $A$ there.  By this method we can
+somewhat extend the length of intervals of known/estimated ancestry copy number.
+
+Figuring this out can be done using interval arithmetic like what is implemented
+in _bedtools_, which can be accessed from within R using the 'bedr'
+package.  While we are doing that we can also remove segments that are contradictory
+in terms of their ancestry copy numbers (I didn't find many of those, which is good!)
+
+Let $X \cup Y$ denote the union of sets of intervals, $X$ and $Y$, and $X \cap Y$
+denote the interval-intersection of those same sets of intervals (i.e., all the overlapping
+segments between the intervals in $X$ and in $Y$), and $X - Y$ denote
+the set-difference (all the intervals in $X$ after removing any overlaps with $Y$).
+With that notation we can easily write down rules for the sets of ancestry-copy-number
+intervals after "extending" them by using available information from the other
+subspecies. We denote the extended sets with a superscript $\mbox{}^\uparrow$.
+$$
+\begin{aligned}
+A_1^\uparrow &= A_1 \cup ((B_1 \cap C_0) \cup (B_0 \cap C_1)) - (A_0 \cup A_2) \\
+A_2^\uparrow &= A_2 \cup ((B_0 \cap C_0) \cup (B_0 \cap C_0)) - (A_0 \cup A_1) \\
+B_1^\uparrow &= B_1 \cup ((A_1 \cap C_0) \cup (A_0 \cap C_1)) - (B_0 \cup B_2) \\
+B_2^\uparrow &= B_2 \cup ((A_0 \cap C_0) \cup (A_0 \cap C_0)) - (B_0 \cup B_1) \\
+C_1^\uparrow &= C_1 \cup ((A_1 \cap B_0) \cup (A_0 \cap B_1)) - (C_0 \cup C_2) \\
+C_2^\uparrow &= C_2 \cup ((A_0 \cap B_0) \cup (A_0 \cap B_0)) - (C_0 \cup C_1) \\
+\end{aligned}
+$$
+
+And from intersections of those we can find, for example $A_1B_1C_0$.  But it might be
+more efficient to just identify those immediately, rather than storing the intermediate
+values above.  So, in fact, this is how we want to do it below.  Let $A_xB_yC_z$ denote
+the extended copy-number intervals in which the individual carries $x$ copies of $A$,
+$Y$ copies of $B$, and $z$ copies of $C$.  Since these are diploid organisms any
+allowable value of $A_xB_yC_z$ must have $x,y,z \in \{0, 1, 2\}$ and $x + y + z = 2$.
+$$
+\begin{aligned}
+A_1B_1C_0 &= \biggl(A_1 \cup \bigl((B_1 \cap C_0) - (A_0 \cup A_2)\bigr)\biggr) \cap 
+\biggl(B_1 \cup \bigl((A_1 \cap C_0) - (B_0 \cup B_2)\bigr)\biggr) \\
+A_1B_0C_1 &= \biggl(A_1 \cup \bigl((B_0 \cap C_1) - (A_0 \cup A_2)\bigr)\biggr) \cap 
+\biggl(C_1 \cup \bigl((A_1 \cap B_0) - (C_0 \cup C_2)\bigr)\biggr) \\
+A_0B_1C_1 &= \biggl(B_1 \cup \bigl((A_0 \cap C_1) - (B_0 \cup B_2)\bigr)\biggr) \cap 
+\biggl(C_1 \cup \bigl((A_0 \cap B_1) - (C_0 \cup C_2)\bigr)\biggr) \\
+A_2B_0C_0 &= A_2 \cup \bigl((B_0 \cap C_0) - (A_0 \cup A_1)\bigr) \\
+A_0B_2C_0 &= B_2 \cup \bigl((A_0 \cap C_0) - (B_0 \cup B_1)\bigr) \\
+A_0B_0C_2 &= C_2 \cup \bigl((A_0 \cap B_0) - (C_0 \cup C_1)\bigr) \\
+\end{aligned}
+$$
+Down here I play with some bedr stuff:
+```{r}
+library(bedr)
+
+interval <- "Omy01:10-100"
+snps <- c("Omy01:9-10", "Omy01:10-11", "Omy01:11-12", "Omy01:99-100", "Omy01:100-101", "Omy01:101-102")
+
+is.valid.region(interval, check.chr = FALSE)
+is.valid.region(snps, check.chr = FALSE)
+
+bedr.join.region(snps, interval, check.chr = FALSE, )
+
+in.region(snps, interval, check.chr = FALSE)
+
+
+interval1 <- c("Omy01:1-100", "Omy01:200-300")
+interval2 <- c("Omy01:50-60", "Omy01:70-85", "Omy01:150-175")
+interval3 <- c()
+
+bedr.join.region(interval1, interval2, check.chr = FALSE)
+
+# here is a function to implement a proper bedtools intersect
+bti <- function(a, b) {
+  suppressWarnings(
+    bedr(
+      input = list(a = a, b = b),
+      method = "intersect",
+      params = "",
+      check.chr = FALSE,
+      verbose = FALSE
+    )
+  )
+}
+
+bti(interval1, interval2)
+
+
+# and here I can make a function to give us a proper bedtools union of two
+# vectors of intervals
+btu <- function(a, b) {
+  s <- bedr.sort.region(c(a, b), check.chr = FALSE, verbose = FALSE)
+  bedr.merge.region(s, check.chr = FALSE, verbose = FALSE)
+}
+
+```
+
+
+So.  It turns out that is pretty darn slow because there is a lot of overhead
+writing to files, etc.  It might be faster to use functions from the intervals
+package.
+
+```{r}
+library(intervals)
+
+# Lets make some corresponding sets of intervals on a common chromosome:
+Intervals1 <- Intervals(
+               matrix(
+                      c(1, 100,  
+                        200,300
+                      ),
+                      byrow = TRUE,
+                      ncol = 2
+               ),
+               closed = c( TRUE, TRUE ),
+               type = "Z"
+               )
+
+Intervals2 <- Intervals(
+               matrix(
+                      c(50, 60,  
+                        70, 85,
+                        150, 175
+                      ),
+                      byrow = TRUE,
+                      ncol = 2
+               ),
+               closed = c( TRUE, TRUE ),
+               type = "Z"
+               )
+
+IntervalsNA <- Intervals(
+  matrix(c(1, NA), byrow = TRUE, ncol = 2),
+  closed = c(TRUE, TRUE),
+  type = "Z"
+)
+
+IntervalsEmpty <- Intervals(
+  matrix(numeric(0), byrow = TRUE, ncol = 2),
+  closed = c(TRUE, TRUE),
+  type = "Z"
+)
+```
+
+Now with those, we can verify the behavior that we want.
+
+**Intersections**
+```{r}
+interval_intersection(Intervals1, Intervals2)
+interval_intersection(Intervals2, Intervals1)
+interval_intersection(Intervals1, IntervalsEmpty)
+```
+
+
+**Unions**
+
+Although it says that `interval_union()` will return the same closed values, it does not! It
+ends up returning open intervals pushed out by 1.  That is probably fine:
+```{r}
+interval_union(Intervals1, Intervals2)
+```
+
+But, maybe we could do reduce instead:
+```{r}
+iu <- function(a, b) {
+  reduce(c(a, b))
+}
+
+iu(Intervals1, Intervals2)
+```
+
+Nope, that does it too....  Oh well, no biggie.  It will still work.   
+
+```{r}
+interval_union(Intervals1, IntervalsEmpty)
+```
+Note that we cannot do something like this:
+```{r}
+iu <- function(a, b) {
+  ret <- interval_union(a, b)
+  closed(ret) <- TRUE
+  ret
+}
+
+iu(Intervals1, Intervals2)
+```
+
+
+**Interval Differences**
+
+```{r}
+interval_difference(Intervals1, Intervals2)
+```
+That works great.  
+
+So, with this knowledge, I think we are going to want to use the intervals package
+rather than bedr.  We can nest tibbles within indiv, chrom, and ancestry type and then
+make the resulting matrices into interval objects, and then even pivot them wider and
+fill the missing values with IntervalEmpty and then conduct all the interval operations
+we need that way.  
+
+Not on that, but I suspect we can then intersect an individual to all the remaining ones
+with a left join...

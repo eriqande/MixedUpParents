@@ -1,5 +1,5 @@
 
-# let's do it as a function.  This is designed to operate on a sinble
+# let's do it as a function.  This is designed to operate on a single
 # individual (like nice_fish)
 #' Collapse runs of adjacent same-numbers of ancestral alleles into segments
 #'
