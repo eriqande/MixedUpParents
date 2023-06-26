@@ -29,7 +29,6 @@
 #'
 #' #' # with many individuals, it is recommended to plot this large:
 #' # like: ggsave(g2, filename = "E-gplot.pdf", width = 30, height = 40)
-
 plot_ancestral_segs <- function(
     D,
     M,

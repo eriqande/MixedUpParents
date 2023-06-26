@@ -15,6 +15,9 @@ particular use case we have in mind is one in which parentage inference is to be
 done in populations with individuals admixed between westslope cutthroat trout,
 rainbow trout, and yellowstone cutthroat trout.  However, while describing it
 we will simply refer to three different subspecies or ancestries: $A$, $B$, and $C$.
+Note that we could expand the number of different subspecies if desired, but we
+are focusing on three at this point because of our particular use case.
+
 
 What is interesting about this problem is that there are two sets of markers.  The
 first set of markers are what we will call the "diagnostic" markers.  These are
@@ -35,10 +38,11 @@ under study.
 
 In the first step, we use the diagnostic markers to identify genomic regions that
 carry $A$, $B$, or $C$ ancestry upon 0, 1, or 2 chromosomes.  The second step is
-done conditional on the inferred number of copies of different ancestry at each
+where we calculate the likelihood ratio for parent-offspring vs unrelated. This
+step is done conditional on the inferred number of copies of different ancestry at each
 of the variable markers that is situated within a region for which the ancestry
-of both the candidate parent and offspring are inferred.  We will explain each of
-these steps in the following sections.
+of both the candidate parent and candidate offspring are inferred.  We will explain each of
+these steps (and several other necessary steps) in the following sections.
 
 
 # Inferring ancestral copy-number segments
@@ -49,10 +53,10 @@ runs of diagnostic marker genotypes into segments. Taking the $A$-diagnostic mar
 for an example, at each $A$-diagnostic marker we observe either 0, 1, or 2 copies of the $A$-diagnostic
 allele.  After removing missing data, any two adjacent $A$-diagnostic markers
 (on the same chromosome, of course) with the
-same number of copies of $A$-diagnostic markers define an $A$-diagnostic segment
+same number of copies of $A$-diagnostic alleles define an $A$-diagnostic segment
 with that number of copies.  For example, if two adjacent markers each show 2 copies
 of the $A$-diagnosic allele, then the segment between them is identified as having
-2 copies of the $A$-diagnostic allele.  A similar process is used to define $B$- and
+2 copies of $A$ ancestry.  A similar process is used to define $B$- and
 $C$-diagnostic segments.
 
 At the end of that first step we have a number of segments within an individual.
@@ -131,26 +135,35 @@ I have implemented the above in the function `extend_ancestral_segments_3()`. It
 when we start doing operations on all pairs of individuals we are going to need to
 write our own code with RCpp to make it fast enough...)
 
-**TODO** Finish up that function and transfer it back to tibble form and make a figure.
-Also check for overlaps and remove them.
+I have checked the output of this function and it looks pretty right on.  I have put
+it on the old figure we had of the doses of different diagnostic segments.  The top
+bar, surrounded by a thin black line gives the full ancestral copy number segments
+after extension. Figure 1 shows that. You will have to zoom
+in quite a bit, but you can do that easily since this is a PDF.
+
+```{r fish10, echo=FALSE, fig.cap='Copy number segments and extended segments from 10 fish.'}
+knitr::include_graphics("figures/E-gplot.pdf")
+```
+
 
 # Estimating allele frequencies
 
 Once the genomes of all the individuals in a population have been segmented into the
 six ancestry-copy-number categories above, we can estimate the frequencies of the
 _variable_-marker alleles on each of the three backgrounds, A, B, or C, within the
-population using an EM-algorithm. 
+population, using an EM-algorithm. 
 
-Consider a single locus with alleles $a_i, a_j,\ldots$. Let $n_{xyz}(a_ia_j)$ denote
+Consider a single variable-marker locus with alleles $a_i, a_j,\ldots$. Let $n_{xyz}(a_ia_j)$ denote
 the number of individuals in which this locus occurs within an $A_xB_yC_z$ segment
-and at which the genotype of the individual at the locus is $a_ia_j$. 
+and at which the genotype of the individual at the variable-marker locus is $a_ia_j$. 
 There are a number of scenarios in which it
 is pretty easy to count alleles. For example, to count up the $a_i$ alleles that we know must be on the $A$
 background, we start with:
 $$
-2n_{200}(a_ia_i) + n_{110}(a_ia_i) + n_{101}(a_ia_i) + \sum_{j\neq i} n_{200}(a_ia_j). 
+2n_{200}(a_ia_i) + n_{110}(a_ia_i) + n_{101}(a_ia_i) + \sum_{j\neq i} n_{200}(a_ia_j),
 $$
-In fact, the only scenarios that are ambiguous about how many $a_i$ alleles are on
+because there is no ambiguity about those.  In fact, the only scenarios that are
+ambiguous about how many $a_i$ alleles are on
 the $A$ background are ones in which the individual is heterozygous at the locus and
 has only one copy of the $A$ ancestry---namely the ones covered by
 $$
@@ -161,7 +174,7 @@ of $a_i$ alleles according to the posterior probability that they are on the
 $A$ background given the current estimates of the frequency of the $a_i$ allele on
 the $A$ background. Let $p_A(a_i)$, $p_B(a_i)$, and $p_C(a_i)$ be the
 current "guesses" for the frequencies of allele $a_i$ on each of the three ancestry
-backgrounds. Quite simply then for the $n_{110}(a_ia_j)$ and $n_{101}(a_ia_j)$ cases,
+backgrounds. Quite simply, then, for the $n_{110}(a_ia_j)$ and $n_{101}(a_ia_j)$ cases,
 _a priori_ (i.e., without looking at the allelic type) the probability that the
 $a_i$ allele is on the $A$-background is $\frac{1}{2}$, and with probably $\frac{1}{2}$
 it is on the $B$ or $C$ background respectively.  So, the posterior probability
@@ -174,7 +187,7 @@ q^{(A)}_{101}(a_i;a_j) &=\frac{p_A(a_i)p_C(a_j)}{p_A(a_i)p_C(a_j) + p_A(a_j)p_C(
 $$
 And so, given current estimates of $p_A(a_i)$, $p_B(a_i)$, and $p_C(a_i)$, we find new estimates
 by first counting up the number of alleles (including "fractional" alleles), for each $a_i$. This is
-the E-step (I think---I always have a hard time figuring out which is which...).
+the E-step (I think---I always have a hard time remembering which is the E and which is the M step).
 $$
 \begin{aligned}
 N^\prime_A(a_i) &= 2n_{200}(a_ia_i) + n_{110}(a_ia_i) + n_{101}(a_ia_i) + \sum_{j\neq i} \biggl(n_{200}(a_ia_j) + q^{(A)}_{110}(a_i;a_j)n_{110}(a_ia_j) + q^{(A)}_{101}(a_i;a_j)n_{101}(a_ia_j)  \biggr) \\
@@ -187,5 +200,55 @@ $p$'s:
 $$
 p^\prime_X(a_i) = \frac{N^\prime_X(a_i)}{\sum_k N^\prime_X(a_k)}~~~\mbox{for}~X\in\{A,B,C\}
 $$
+Those steps are iterated to convergence.
+
 This should be easy to implement, and only has to happen once, so we can just do it all
 within the tidyverse, easily, I suspect.
+
+# Parentage likelihood calculations
+
+We do the parentage likelihood calculations conditional on the estimated ancestry-copy-numbers of
+the pair of individuals.  For each possible pair of a candidate parent and a candidate offspring
+we first take the interval intersection of the extended ancestry segments found in each individual.
+While doing so, we keep track of the $A_xB_yC_z$ of each individual at each location in the
+intersection.  Some of those intersecting regions will be incompatible between the pair.  For example,
+if the candidate parent has an $A_1B_1C_0$ and that candidate offspring is an $A_0B_0C_2$, then
+that would be incompatible.  We will keep track of the total genomic length of incompatible intersected
+segments, and also, probably, the total number of markers within those incompatible segments, and we
+can use that to screen out pairs that are very unlikely to be parent-offspring. 
+
+Ultimately, we will keep all the intersected intervals that are compatible with a parent-offspring
+relationship and we will calculate the joint probability of the pair of genotypes at all the
+variable markers within each
+each such interval under the parent-offspring hypothesis and the unrelated hypothesis.  
+
+We will assume that each of these compatible, intersected intervals was inherited independently as
+a single chunk from the parent to the kid.  This is a pretty reasonable assumption---the only place
+it gets dodgy is if you have lots of missing data, and hence multiple disjoint intervals that really
+should be a single, connected interval.  But otherwise, this approach does a good job of accounting for
+the fact that markers are inherited in big blocks.  
+
+We compute the joint genotype probability of the pair as a sum over the different possible
+gametes that could be segregated by the parent. To understand this, it is worth considering
+all the different possibilities.  Let $H_1$ and $H_2$ denote two distinct ancestries/subspecies.
+Note that withing a single individual, you will never find more than two.  Likewise, we will
+let $V_1$ and $V_2$ denote two distinct alleles at a variable marker.  We can then describe
+an individuals genotype and ancestry like this, for example: $V_1V_1,H_1H_2$, which denotes
+an individual homozygous for an allele and heterozygous for ancestry.  Then, the possible,
+canonical, combinations of alleles and ancestries, grouped by the number of possible
+gametes that they will segregate are:
+
+- Those that will yield only one possible type of gamete:
+    - $V_1V_1,H_1H_1$
+- Those that can yield two distinct possible gametes:
+    - $V_1V_2,H_1H_1$
+    - $V_1V_1,H_1H_2$
+- Those that can yield four possible gametes:
+    - $V_1V_2,H_1H_2$
+
+
+
+
+If we assume no LD of the variable markers within the different ancestries (a fairly reasonable assumption)
+then the joint genotype probability is simply the product over variable markers within each intersected
+interval.  
