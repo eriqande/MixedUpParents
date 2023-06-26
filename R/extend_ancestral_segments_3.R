@@ -19,6 +19,7 @@
 #' `diag_spp` column into a factor, which will then define species A, B, and C.
 #' For the example this package was made for it would be, for example,
 #' `c("WCT", "RBT", "YCT")`.
+#' @export
 extend_ancestral_segments_3 <- function(D, diag_spp_levels) {
 
   # make A, B, C for the diag_spp (call it ancestry), then nest
@@ -111,5 +112,23 @@ extend_ancestral_segments_3 <- function(D, diag_spp_levels) {
       values_to = "intv"
     ) %>%
     filter(!(map_int(intv, nrow) == 0))
+
+
+  # Finally, we are going to put these all back into start-stop tibble
+  # form and sort them by start position.  And then we also will remove
+  # segments less than 10 in length.  The intervals package seems to leave
+  # little 2-base pair fragments here and there.  I suspect it has to do with
+  # how it handles open and closed stuff.  So, I will just toss those short
+  # ones
+  D4 %>%
+    mutate(
+      inttib = map(intv, function(x) {
+        colnames(x) <- c("start", "stop");
+        as_tibble(as.matrix(x))})
+    ) %>%
+    select(-intv) %>%
+    unnest(inttib) %>%
+    arrange(indiv, chrom_f, start) %>%
+    filter(stop - start > 10)
 
 }

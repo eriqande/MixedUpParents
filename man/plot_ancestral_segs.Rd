@@ -9,7 +9,8 @@ plot_ancestral_segs(
   M,
   spp_levels = unique(D$diag_spp),
   SF = 0.66,
-  MOP = 0.2
+  MOP = 0.2,
+  E = NULL
 )
 }
 \arguments{
@@ -26,6 +27,9 @@ markers and segments (as opposed to being a blank break between chromosomes)}
 \item{MOP}{"marker overhang part", the fraction of the vertical space devoted to markers
 and segments that is accounted for by the marker "whisker" that extends from either
 the top of the bottom of the segment}
+
+\item{E}{the output from \code{extend_ancestral_segments_3()} if you want to plot
+those as well.  Must have been made from D.}
 }
 \description{
 Make a plot of the ancestral segments with 0, 1, or 2 copies of a species-specific allele
@@ -38,4 +42,11 @@ g <- plot_ancestral_segs(D, M)
 
 # with many individuals, it is recommended to plot this large:
 # like: ggsave(g, filename = "gplot.pdf", width = 30, height = 40)
+
+# If you want to add the extended segments to it:
+# E <- extend_ancestral_segments_3(D, c("WCT", "RBT", "YCT"))
+# g2 <- plot_ancestral_segs(D, M, E = E)
+
+#' # with many individuals, it is recommended to plot this large:
+# like: ggsave(g2, filename = "E-gplot.pdf", width = 30, height = 40)
 }

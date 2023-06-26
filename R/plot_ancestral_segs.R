@@ -11,6 +11,8 @@
 #' @param MOP "marker overhang part", the fraction of the vertical space devoted to markers
 #' and segments that is accounted for by the marker "whisker" that extends from either
 #' the top of the bottom of the segment
+#' @param E the output from `extend_ancestral_segments_3()` if you want to plot
+#' those as well.  Must have been made from D.
 #' @export
 #' @examples
 #' data(diag_markers_10_fish)
@@ -20,12 +22,21 @@
 #'
 #' # with many individuals, it is recommended to plot this large:
 #' # like: ggsave(g, filename = "gplot.pdf", width = 30, height = 40)
+#'
+#' # If you want to add the extended segments to it:
+#' # E <- extend_ancestral_segments_3(D, c("WCT", "RBT", "YCT"))
+#' # g2 <- plot_ancestral_segs(D, M, E = E)
+#'
+#' #' # with many individuals, it is recommended to plot this large:
+#' # like: ggsave(g2, filename = "E-gplot.pdf", width = 30, height = 40)
+
 plot_ancestral_segs <- function(
     D,
     M,
     spp_levels = unique(D$diag_spp),
     SF = 0.66,
-    MOP = 0.2
+    MOP = 0.2,
+    E = NULL
 ) {
 
   if (!setequal(unique(D$diag_spp), spp_levels)) {
@@ -93,6 +104,28 @@ plot_ancestral_segs <- function(
     scale_colour_manual(values = seg_colour_values) +
     theme_bw()
 
+  if(!is.null(E)) {
+    E2 <- E %>%
+      mutate(
+        chrom_top = NC - as.integer(chrom_f) + 1
+      )
+
+    copy_num_color_names <- c("A1B1C0", "A1B0C1", "A0B1C1", "A2B0C0", "A0B2C0", "A0B0C2")
+    new_cols <- rainbow(6)
+    names(new_cols) <- copy_num_color_names
+    all_cols <- c(seg_colour_values, new_cols)
+    g2 <- g +
+      geom_rect(
+        data = E2,
+        mapping = aes(xmin = start, xmax = stop, ymin = chrom_top + SF / 16, ymax = chrom_top + SF / 4, fill = copy_num),
+        colour = "black",
+        linewidth = 0.1
+      ) +
+      scale_fill_manual(values = all_cols)
+
+    g <- g2
+
+  }
 
   #ggsave(g, filename = "test.pdf", width = 30, height = 40)
   g

@@ -70,11 +70,19 @@ markers, and you see that you have zero $B$-diagnostic and zero $C$-diagnostic a
 those markers, then
 it is reasonable to assume that you have 2 copies of $A$ there.  By this method we can
 somewhat extend the length of intervals of known/estimated ancestry copy number.
+While we are doing that we can also remove segments that are contradictory
+in terms of their ancestry copy numbers---for example, those that have 2 copies
+of a $C$-diagnostic allele but also 1 copy of a $B$-diagnostic allele.  Thankfully,
+in my early explorations of some of the data Jared gave me, I found very few of those
+contradictory segments, which is part of the reason why I feel this approach might
+actually work well.
 
-Figuring this out can be done using interval arithmetic like what is implemented
-in _bedtools_, which can be accessed from within R using the 'bedr'
-package.  While we are doing that we can also remove segments that are contradictory
-in terms of their ancestry copy numbers (I didn't find many of those, which is good!)
+Making extended segments and also identifying contradictory segments can be done
+using interval arithmetic like what is implemented
+in _bedtools_.  There is an R wrapper for bedtools in the 'bedr' package, but for
+repeated application of that, it seems there is way too much overhead in writing
+files, etc.  So, going forward we will use the 'intervals' package, which is also
+not super efficient, but we can make it work for the first part of this work.
 
 Let $X \cup Y$ denote the union of sets of intervals, $X$ and $Y$, and $X \cap Y$
 denote the interval-intersection of those same sets of intervals (i.e., all the overlapping
@@ -94,12 +102,15 @@ C_2^\uparrow &= C_2 \cup ((A_0 \cap B_0) \cup (A_0 \cap B_0)) - (C_0 \cup C_1) \
 \end{aligned}
 $$
 
-And from intersections of those we can find, for example $A_1B_1C_0$.  But it might be
-more efficient to just identify those immediately, rather than storing the intermediate
+And from intersections of those we can find, for example, $A_1B_1C_0$---segments with
+one copy of ancestry from $A$ and one copy from $B$. However, as I look at this problem,
+I realize that it might be
+more efficient to just identify those segments immediately, rather than storing the intermediate
 values above.  So, in fact, this is how we want to do it below.  Let $A_xB_yC_z$ denote
 the extended copy-number intervals in which the individual carries $x$ copies of $A$,
-$Y$ copies of $B$, and $z$ copies of $C$.  Since these are diploid organisms any
+$y$ copies of $B$, and $z$ copies of $C$.  Since these are diploid organisms any
 allowable value of $A_xB_yC_z$ must have $x,y,z \in \{0, 1, 2\}$ and $x + y + z = 2$.
+We can find these segments with interval arithmetic as follows:
 $$
 \begin{aligned}
 A_1B_1C_0 &= \biggl(A_1 \cup \bigl((B_1 \cap C_0) - (A_0 \cup A_2)\bigr)\biggr) \cap 
@@ -113,155 +124,68 @@ A_0B_2C_0 &= B_2 \cup \bigl((A_0 \cap C_0) - (B_0 \cup B_1)\bigr) \\
 A_0B_0C_2 &= C_2 \cup \bigl((A_0 \cap B_0) - (C_0 \cup C_1)\bigr) \\
 \end{aligned}
 $$
-Down here I play with some bedr stuff:
-```{r}
-library(bedr)
 
-interval <- "Omy01:10-100"
-snps <- c("Omy01:9-10", "Omy01:10-11", "Omy01:11-12", "Omy01:99-100", "Omy01:100-101", "Omy01:101-102")
+I have implemented the above in the function `extend_ancestral_segments_3()`. It uses the
+'intervals' package.  It is not super fast, but we can parallelize it using the
+'furrr' package, which makes it tolerable for operations on individuals. (But I note that
+when we start doing operations on all pairs of individuals we are going to need to
+write our own code with RCpp to make it fast enough...)
 
-is.valid.region(interval, check.chr = FALSE)
-is.valid.region(snps, check.chr = FALSE)
+**TODO** Finish up that function and transfer it back to tibble form and make a figure.
+Also check for overlaps and remove them.
 
-bedr.join.region(snps, interval, check.chr = FALSE, )
+# Estimating allele frequencies
 
-in.region(snps, interval, check.chr = FALSE)
+Once the genomes of all the individuals in a population have been segmented into the
+six ancestry-copy-number categories above, we can estimate the frequencies of the
+_variable_-marker alleles on each of the three backgrounds, A, B, or C, within the
+population using an EM-algorithm. 
 
-
-interval1 <- c("Omy01:1-100", "Omy01:200-300")
-interval2 <- c("Omy01:50-60", "Omy01:70-85", "Omy01:150-175")
-interval3 <- c()
-
-bedr.join.region(interval1, interval2, check.chr = FALSE)
-
-# here is a function to implement a proper bedtools intersect
-bti <- function(a, b) {
-  suppressWarnings(
-    bedr(
-      input = list(a = a, b = b),
-      method = "intersect",
-      params = "",
-      check.chr = FALSE,
-      verbose = FALSE
-    )
-  )
-}
-
-bti(interval1, interval2)
-
-
-# and here I can make a function to give us a proper bedtools union of two
-# vectors of intervals
-btu <- function(a, b) {
-  s <- bedr.sort.region(c(a, b), check.chr = FALSE, verbose = FALSE)
-  bedr.merge.region(s, check.chr = FALSE, verbose = FALSE)
-}
-
-```
-
-
-So.  It turns out that is pretty darn slow because there is a lot of overhead
-writing to files, etc.  It might be faster to use functions from the intervals
-package.
-
-```{r}
-library(intervals)
-
-# Lets make some corresponding sets of intervals on a common chromosome:
-Intervals1 <- Intervals(
-               matrix(
-                      c(1, 100,  
-                        200,300
-                      ),
-                      byrow = TRUE,
-                      ncol = 2
-               ),
-               closed = c( TRUE, TRUE ),
-               type = "Z"
-               )
-
-Intervals2 <- Intervals(
-               matrix(
-                      c(50, 60,  
-                        70, 85,
-                        150, 175
-                      ),
-                      byrow = TRUE,
-                      ncol = 2
-               ),
-               closed = c( TRUE, TRUE ),
-               type = "Z"
-               )
-
-IntervalsNA <- Intervals(
-  matrix(c(1, NA), byrow = TRUE, ncol = 2),
-  closed = c(TRUE, TRUE),
-  type = "Z"
-)
-
-IntervalsEmpty <- Intervals(
-  matrix(numeric(0), byrow = TRUE, ncol = 2),
-  closed = c(TRUE, TRUE),
-  type = "Z"
-)
-```
-
-Now with those, we can verify the behavior that we want.
-
-**Intersections**
-```{r}
-interval_intersection(Intervals1, Intervals2)
-interval_intersection(Intervals2, Intervals1)
-interval_intersection(Intervals1, IntervalsEmpty)
-```
-
-
-**Unions**
-
-Although it says that `interval_union()` will return the same closed values, it does not! It
-ends up returning open intervals pushed out by 1.  That is probably fine:
-```{r}
-interval_union(Intervals1, Intervals2)
-```
-
-But, maybe we could do reduce instead:
-```{r}
-iu <- function(a, b) {
-  reduce(c(a, b))
-}
-
-iu(Intervals1, Intervals2)
-```
-
-Nope, that does it too....  Oh well, no biggie.  It will still work.   
-
-```{r}
-interval_union(Intervals1, IntervalsEmpty)
-```
-Note that we cannot do something like this:
-```{r}
-iu <- function(a, b) {
-  ret <- interval_union(a, b)
-  closed(ret) <- TRUE
-  ret
-}
-
-iu(Intervals1, Intervals2)
-```
-
-
-**Interval Differences**
-
-```{r}
-interval_difference(Intervals1, Intervals2)
-```
-That works great.  
-
-So, with this knowledge, I think we are going to want to use the intervals package
-rather than bedr.  We can nest tibbles within indiv, chrom, and ancestry type and then
-make the resulting matrices into interval objects, and then even pivot them wider and
-fill the missing values with IntervalEmpty and then conduct all the interval operations
-we need that way.  
-
-Not on that, but I suspect we can then intersect an individual to all the remaining ones
-with a left join...
+Consider a single locus with alleles $a_i, a_j,\ldots$. Let $n_{xyz}(a_ia_j)$ denote
+the number of individuals in which this locus occurs within an $A_xB_yC_z$ segment
+and at which the genotype of the individual at the locus is $a_ia_j$. 
+There are a number of scenarios in which it
+is pretty easy to count alleles. For example, to count up the $a_i$ alleles that we know must be on the $A$
+background, we start with:
+$$
+2n_{200}(a_ia_i) + n_{110}(a_ia_i) + n_{101}(a_ia_i) + \sum_{j\neq i} n_{200}(a_ia_j). 
+$$
+In fact, the only scenarios that are ambiguous about how many $a_i$ alleles are on
+the $A$ background are ones in which the individual is heterozygous at the locus and
+has only one copy of the $A$ ancestry---namely the ones covered by
+$$
+n_{110}(a_ia_j)~~~\mbox{and}~~~n_{101}(a_ia_j)~~~\forall j\neq i
+$$
+And this is where the EM-algorithm comes in.  We can count up "fractional" parts
+of $a_i$ alleles according to the posterior probability that they are on the
+$A$ background given the current estimates of the frequency of the $a_i$ allele on
+the $A$ background. Let $p_A(a_i)$, $p_B(a_i)$, and $p_C(a_i)$ be the
+current "guesses" for the frequencies of allele $a_i$ on each of the three ancestry
+backgrounds. Quite simply then for the $n_{110}(a_ia_j)$ and $n_{101}(a_ia_j)$ cases,
+_a priori_ (i.e., without looking at the allelic type) the probability that the
+$a_i$ allele is on the $A$-background is $\frac{1}{2}$, and with probably $\frac{1}{2}$
+it is on the $B$ or $C$ background respectively.  So, the posterior probability
+that the $a_i$ is on the $A$ background in each case is:
+$$
+\begin{aligned}
+q^{(A)}_{110}(a_i;a_j) &=\frac{p_A(a_i)p_B(a_j)}{p_A(a_i)p_B(a_j) + p_A(a_j)p_B(a_i)}~~~~,~~~~\mbox{for the}~n_{110}(a_i, a_j)~\mbox{case} \\
+q^{(A)}_{101}(a_i;a_j) &=\frac{p_A(a_i)p_C(a_j)}{p_A(a_i)p_C(a_j) + p_A(a_j)p_C(a_i)}~~~~,~~~~\mbox{for the}~n_{101}(a_i, a_j)~\mbox{case} \\
+\end{aligned}
+$$
+And so, given current estimates of $p_A(a_i)$, $p_B(a_i)$, and $p_C(a_i)$, we find new estimates
+by first counting up the number of alleles (including "fractional" alleles), for each $a_i$. This is
+the E-step (I think---I always have a hard time figuring out which is which...).
+$$
+\begin{aligned}
+N^\prime_A(a_i) &= 2n_{200}(a_ia_i) + n_{110}(a_ia_i) + n_{101}(a_ia_i) + \sum_{j\neq i} \biggl(n_{200}(a_ia_j) + q^{(A)}_{110}(a_i;a_j)n_{110}(a_ia_j) + q^{(A)}_{101}(a_i;a_j)n_{101}(a_ia_j)  \biggr) \\
+N^\prime_B(a_i) &= 2n_{020}(a_ia_i) + n_{110}(a_ia_i) + n_{011}(a_ia_i) + \sum_{j\neq i} \biggl(n_{020}(a_ia_j) + q^{(B)}_{110}(a_i;a_j)n_{110}(a_ia_j) + q^{(B)}_{011}(a_i;a_j)n_{011}(a_ia_j)  \biggr) \\
+N^\prime_C(a_i) &= 2n_{002}(a_ia_i) + n_{101}(a_ia_i) + n_{011}(a_ia_i) + \sum_{j\neq i} \biggl(n_{002}(a_ia_j) + q^{(C)}_{101}(a_i;a_j)n_{101}(a_ia_j) + q^{(C)}_{011}(a_i;a_j)n_{011}(a_ia_j)  \biggr) \\
+\end{aligned}
+$$
+Then, with all of those in hand, we do the M-step, finding the maximum likelihood estimate of the
+$p$'s:
+$$
+p^\prime_X(a_i) = \frac{N^\prime_X(a_i)}{\sum_k N^\prime_X(a_k)}~~~\mbox{for}~X\in\{A,B,C\}
+$$
+This should be easy to implement, and only has to happen once, so we can just do it all
+within the tidyverse, easily, I suspect.
