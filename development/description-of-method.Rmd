@@ -221,6 +221,8 @@ Ultimately, we will keep all the intersected intervals that are compatible with 
 relationship and we will calculate the joint probability of the pair of genotypes at all the
 variable markers within each
 each such interval under the parent-offspring hypothesis and the unrelated hypothesis.  
+Just a side note here, I think that this is going to require using RCpp if it is to
+be sufficiently fast.
 
 We will assume that each of these compatible, intersected intervals was inherited independently as
 a single chunk from the parent to the kid.  This is a pretty reasonable assumption---the only place
@@ -229,26 +231,76 @@ should be a single, connected interval.  But otherwise, this approach does a goo
 the fact that markers are inherited in big blocks.  
 
 We compute the joint genotype probability of the pair as a sum over the different possible
-gametes that could be segregated by the parent. To understand this, it is worth considering
-all the different possibilities.  Let $H_1$ and $H_2$ denote two distinct ancestries/subspecies.
-Note that withing a single individual, you will never find more than two.  Likewise, we will
-let $V_1$ and $V_2$ denote two distinct alleles at a variable marker.  We can then describe
-an individuals genotype and ancestry like this, for example: $V_1V_1,H_1H_2$, which denotes
-an individual homozygous for an allele and heterozygous for ancestry.  Then, the possible,
-canonical, combinations of alleles and ancestries, grouped by the number of possible
-gametes that they will segregate are:
-
-- Those that will yield only one possible type of gamete:
-    - $V_1V_1,H_1H_1$
-- Those that can yield two distinct possible gametes:
-    - $V_1V_2,H_1H_1$
-    - $V_1V_1,H_1H_2$
-- Those that can yield four possible gametes:
-    - $V_1V_2,H_1H_2$
-
-
-
-
+gametes that could be segregated by the parent. 
 If we assume no LD of the variable markers within the different ancestries (a fairly reasonable assumption)
 then the joint genotype probability is simply the product over variable markers within each intersected
-interval.  
+interval, inside that sum over segregated ancestries.  
+
+We step back here and sketch this out in mathematical form.  Let $Y_P$ and $Y_C$ be the
+genotypes at the variable markers within compatible intersected intervals of the
+candidate parent ($P$) and the candidate offspring ($C$). Then the joint probability of
+their genotypes will look something like this:
+$$
+\begin{aligned}
+P(Y_P, Y_C) &= \prod_{{\mathrm{compatible~inter-} \atop \mathrm{sected~intervals}}}
+\sum_{{ \mathrm{ancestry~segment} \atop \mathrm{segregated,~}G }}
+\prod_{{\mathrm{variable~markers} \atop \mathrm{in~segment} }}
+\sum_{{ \mathrm{variable~alleles~}v \atop \mathrm{assigned~to~}G,G'}}\biggl[ \\
+\mbox{}& \mbox{Prob(parent genotype given }v\mbox{ on }G\mbox{ and }G') \times \\
+\mbox{}& \mbox{Prob(offsping genotype given }v\mbox{ on }G\mbox{ was segregated to it}) \\
+\biggr]
+\end{aligned}
+$$
+
+
+To understand this, it is worth considering
+all the different possibilities.  Let $H_1$ and $H_2$ denote two distinct ancestries/subspecies.
+Note that within a single individual, you will never find more than two.  
+If an individual carries $H_1H_1$ then you know with probability 1 it will
+segregate a gamete of ancestry $H_1$.  However, if it is $H_1H_2$, then you know
+that with probability $\frac{1}{2}$ it segregates an $H_1$, and with probability
+$H_2$ it segregates an $H_2$.  
+
+
+Likewise, we will
+let $V_1$ and $V_2$ denote two distinct alleles at a variable marker.  We can then describe
+an individuals genotype as $V_1V_1$ or $V_1V_2$.  In the above, where we talk about
+"variable alleles assigned to $G,G'$" we are talking about the possible distinct assignments
+of variable alleles to the gamete that gets segregated and the one that remains.
+Obviously, if an $H_1H_2$ individual that is also $V_1V_2$ segregates an $H_1$ then
+there are two possible assignments of the variable alleles: either the $V_1$ gets
+segregated to the offspring upon the $H_1$ background and the $V_2$ is on the
+$H_2$ background, or the $V_2$ gets segregated on the $H_1$ background and $V_1$ is
+on the $H_2$ background.  
+
+
+The $\mbox{Prob(parent genotype given }v\mbox{ on }G\mbox{ and }G')$ is fairly straightforward.
+Once we assign alleles to ancestries (which we do when we assign the allele to
+the segregated ancestry), then the probability of the parent's genotype is merely
+the chance of drawing each of the alleles in the individual given the ancestries/subspecies
+they are from.  These are just the allele frequencies that we calculated using the
+EM-algorithm, above.
+
+Likewise, the $\mbox{Prob(offsping genotype given }v\mbox{ on }G\mbox{ was segregated to it})$ is
+pretty easily calculated.  Let's denote the segregated gamete as $H_1,V_1$ ($H_1$ is simply
+the ancestry and $V_1$ is the allele).  Then, keeping in mind that we are only dealing with
+_compatible_ intersected intervals, the possibilities for the offspring genotypes
+and their corresponding probabilities are:
+$$
+\begin{aligned}
+H_1H_1,V_1V_1 & & p_{H_1}(V_1)\\
+H_1H_1,V_1V_2 & & p_{H_1}(V_2) \\
+H_1H_1,V_2V_2 & & \epsilon p_{H_1}(V_2) \\
+H_1H_1,V_2V_3 & & \epsilon p_{H_1}(V_2)/2 + \epsilon p_{H_1}(V_3)/2 \\
+H_1H_2,V_1V_1 & & p_{H_2}(V_1) \\
+H_1H_2,V_2V_2 & & \epsilon p_{H_2}(V_2)  \\
+H_1H_2,V_2V_3 & & \epsilon p_{H_2}(V_2)/2 + \epsilon p_{H_2}(V_3)/2  \\
+\end{aligned}
+$$
+where $\epsilon$ is essentially the rate at which alleles are miscalled, in a very
+simple genotyping error model.  
+
+Great! All I need now is a little pseudo code for the products and sums above
+and I will be ready to start implementing this.  I will do it using RCpp.
+
+
