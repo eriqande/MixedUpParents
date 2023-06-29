@@ -187,7 +187,8 @@ q^{(A)}_{101}(a_i;a_j) &=\frac{p_A(a_i)p_C(a_j)}{p_A(a_i)p_C(a_j) + p_A(a_j)p_C(
 $$
 And so, given current estimates of $p_A(a_i)$, $p_B(a_i)$, and $p_C(a_i)$, we find new estimates
 by first counting up the number of alleles (including "fractional" alleles), for each $a_i$. This is
-the E-step (I think---I always have a hard time remembering which is the E and which is the M step).
+the E-step (I think---I always have a hard time formally figuring out which is the
+E and which is the M step).
 $$
 \begin{aligned}
 N^\prime_A(a_i) &= 2n_{200}(a_ia_i) + n_{110}(a_ia_i) + n_{101}(a_ia_i) + \sum_{j\neq i} \biggl(n_{200}(a_ia_j) + q^{(A)}_{110}(a_i;a_j)n_{110}(a_ia_j) + q^{(A)}_{101}(a_i;a_j)n_{101}(a_ia_j)  \biggr) \\
@@ -236,10 +237,9 @@ If we assume no LD of the variable markers within the different ancestries (a fa
 then the joint genotype probability is simply the product over variable markers within each intersected
 interval, inside that sum over segregated ancestries.  
 
-We step back here and sketch this out in mathematical form.  Let $Y_P$ and $Y_C$ be the
-genotypes at the variable markers within compatible intersected intervals of the
-candidate parent ($P$) and the candidate offspring ($C$). Then the joint probability of
-their genotypes will look something like this:
+We step back here and sketch this out in mathematical form---the joint probability of
+the candidate parent and offspring genotypes can be computed using the following sort
+of scheme:
 $$
 \begin{aligned}
 P(Y_P, Y_C) &= \prod_{{\mathrm{compatible~inter-} \atop \mathrm{sected~intervals}}}
@@ -255,7 +255,8 @@ $$
 
 To understand this, it is worth considering
 all the different possibilities.  Let $H_1$ and $H_2$ denote two distinct ancestries/subspecies.
-Note that within a single individual, you will never find more than two.  
+Note that within a single individual, in a single intersected interval,
+you will never find more than two.
 If an individual carries $H_1H_1$ then you know with probability 1 it will
 segregate a gamete of ancestry $H_1$.  However, if it is $H_1H_2$, then you know
 that with probability $\frac{1}{2}$ it segregates an $H_1$, and with probability
@@ -264,7 +265,7 @@ $H_2$ it segregates an $H_2$.
 
 Likewise, we will
 let $V_1$ and $V_2$ denote two distinct alleles at a variable marker.  We can then describe
-an individuals genotype as $V_1V_1$ or $V_1V_2$.  In the above, where we talk about
+an individual's genotype as $V_1V_1$ or $V_1V_2$.  In the above, where we talk about
 "variable alleles assigned to $G,G'$" we are talking about the possible distinct assignments
 of variable alleles to the gamete that gets segregated and the one that remains.
 Obviously, if an $H_1H_2$ individual that is also $V_1V_2$ segregates an $H_1$ then
@@ -297,10 +298,16 @@ H_1H_2,V_2V_2 & & \epsilon p_{H_2}(V_2)  \\
 H_1H_2,V_2V_3 & & \epsilon p_{H_2}(V_2)/2 + \epsilon p_{H_2}(V_3)/2  \\
 \end{aligned}
 $$
-where $\epsilon$ is essentially the rate at which alleles are miscalled, in a very
+where $\epsilon$ is essentially the rate at which alleles at the variable loci
+are miscalled, in a very
 simple genotyping error model.  
 
 Great! All I need now is a little pseudo code for the products and sums above
-and I will be ready to start implementing this.  I will do it using RCpp.
+and I will be ready to start implementing this.  I will do it using RCpp because,
+when we are doing this sort of thing between many pairs of individuals, that
+ends up being a lot of computing, and RCpp will be considerably faster.
+
+That's it for now.
+
 
 
