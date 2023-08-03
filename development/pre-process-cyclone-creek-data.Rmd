@@ -1,0 +1,259 @@
+---
+title: "Pre-Processing data from Cyclone Creek"
+output: html_document
+---
+
+Here we do a data set of about 4000 fish.
+
+```{r}
+library(tidyverse)
+library(MixedUpParents)
+library(vroom)
+
+# read in all the files:
+cyc_ck_files <- dir("BigData/CycloneCreek/allele_counts", full.names = TRUE)
+
+all_files <- vroom(cyc_ck_files, id = "path")
+
+```
+
+There is a problem with a few loci that have more than two alleles:
+```{r}
+problems(all_files)
+```
+
+Let's count those up:
+```{r}
+problems(all_files) %>%
+  count(row, expected, actual)
+```
+
+So, let's just read everything as characters, pivot this stuff, and then NA-call the sites
+that have a `/`.
+```{r}
+all_files_chr <- vroom(
+  cyc_ck_files,
+  col_types = cols(.default = "character"),
+  id = "path"
+  ) %>%
+  pivot_longer(
+    cols = -(path:Pos),
+    names_to = "fish",
+    values_to = "geno"
+  ) %>%
+  extract(path, into = "marker_set", "^Big.*allele_counts/(.*)_allele_counts.csv")
+```
+
+
+Count up the different genotypes we have seen here:
+```{r}
+all_files_chr %>%
+  count(geno)
+```
+So, there are clearly some that have more than the two main alleles.
+We will simply no-call those.
+```{r}
+genos <- all_files_chr %>%
+  mutate(
+    geno = as.integer(ifelse(str_detect(geno, "/"), NA, geno)),
+  ) %>%
+  rename(chrom = Chr, pos = Pos) %>%
+  mutate(pos = as.integer(pos))
+  
+```
+
+## Check for and remove loci that appear more than once
+
+```{r}
+duped_positions <- genos %>%
+  count(chrom, pos, fish) %>%
+  filter(n > 1) %>%
+  count(chrom, pos)
+```
+And see where those appear:
+```{r}
+count_dupes <- genos %>%
+  semi_join(duped_positions, by = c("chrom", "pos")) %>%
+  count(marker_set, chrom, pos)
+
+count_dupes
+```
+
+So, we can count up how many times these occur in each data set and then
+pivot that to see the overlaps:
+```{r, rows.print = 40}
+dup_comp <- count_dupes %>%
+  select(-n) %>%
+  count(chrom, pos, marker_set) %>%
+  pivot_wider(
+    names_from = marker_set,
+    values_from = n,
+    values_fill = 0L
+  )
+dup_comp
+```
+
+I find it concerning when something is listed as both a WCT_diag and also a
+WCT_var.  Same with RBT.  So, really the only ones of these that I feel like
+preserving would be the ones that are considered both WCT_var and RBT_var, but
+I will drop those from RBT_var.  All others must go.  So, we can do some
+anti-joining here:
+```{r}
+drop_dup_from_RBT <- dup_comp %>%
+  filter(WCT_var == 1 & RBT_var == 1 & WCT_diag == 0 & RBT_diag == 0) %>%
+  mutate(marker_set = "RBT_diag", .before = chrom)
+```
+
+That is only 5 markers. Why even bother.  I am going to discard all of these
+duplicates.
+```{r}
+genos_no_dup <- genos %>%
+  anti_join(dup_comp, by = c("chrom", "pos"))
+```
+
+Let's see if that was successful:
+```{r}
+genos_no_dup %>%
+  count(chrom, pos, fish) %>%
+  filter(n > 1) %>%
+  count(chrom, pos)
+```
+Yay! The offending loci in multiple marker sets have been eliminated.
+
+
+## total fraction of missing sites within individual across all marker sets
+
+```{r}
+genos_no_dup %>%
+  group_by(fish) %>%
+  summarise(fract_missing = mean(is.na(geno))) %>%
+  ggplot(aes(x = fract_missing)) +
+  geom_histogram()
+```
+
+Now, I am curious what that looks like in each of the different marker sets:
+```{r}
+fmiss_by_set <- genos_no_dup %>%
+  group_by(marker_set, fish) %>%
+  summarise(fract_missing = mean(is.na(geno)))
+
+ggplot(fmiss_by_set, aes(x = fract_missing, fill = marker_set)) +
+  geom_histogram() +
+  facet_wrap(~ marker_set, ncol = 3)
+```
+
+I think that we should consider a miss fract cutoff of 0.3, because for individuals
+missing 30% of their loci, you expect that a fraction greater than 50% will still
+be non-missing between them.  I am going to impose this for now and we can
+follow up on it more, later.
+
+How about for different loci?
+```{r}
+genos_no_dup %>%
+  group_by(chrom, pos) %>%
+  summarise(fract_missing = mean(is.na(geno))) %>%
+  ggplot(aes(x = fract_missing)) +
+  geom_histogram()
+```
+
+
+When I look at that, I think I am inclined to discard markers that are missing
+in more than 70% of the fish.  So, combining the two filters (loci and then indivs)
+that I would like to do, we have something like this:
+
+
+
+
+```{r}
+genos_filt <- genos_no_dup %>%
+  group_by(chrom, pos) %>%
+  filter(mean(is.na(geno)) < 0.7) %>%
+  group_by(fish) %>%
+  filter(mean(is.na(geno)) < 0.3) %>%
+  ungroup()
+```
+
+Now, let's see what that looks like in terms of numbers:
+```{r}
+genos_filt %>%
+  count(chrom, pos) %>%
+  count(n)
+```
+
+That is 2464 loci, and 3131 fish, total.
+
+Unfiltered we had:
+```{r}
+genos_no_dup %>%
+  count(chrom, pos) %>%
+  count(n)
+```
+So, unfiltered was 2580 markers in 4178 fish.  
+
+So, our missing-fraction-in-individuals filter has tossed about 1,050
+fish.  But our locus filter did not toss too many loci.  We can revisit
+that, but I am not eager to start doing things with only 25% of the original
+markers in any particular pairwise comparison, which is what we would have
+if we accepted fish with 50% missing data.
+
+So, what do the number of markers in each of the data sets look like?
+```{r}
+genos_filt %>%
+  group_by(marker_set) %>%
+  summarise(
+    num_fish = n_distinct(fish),
+    num_loci = n_distinct(chrom, pos)
+  )
+```
+Those numbers should work out pretty well, especially for individuals with
+mostly WCT ancestry.  We might be able to loosen up on the missing data cutoffs
+eventually.  We do seem to not have a great many WCT_diag markers, but that
+might be OK.  
+
+And let us compare that to what we were working with before:
+```{r}
+diag_markers_10_fish %>%
+  group_by(diag_spp) %>%
+  summarise(
+    num_loci = n_distinct(chrom, pos)
+  )
+```
+
+So, it is close.
+
+OK,  we now have the cyclone creek data set in reasonable shape to start some testing.
+
+```{r}
+genos_filt_split <- genos_filt %>%
+  separate(marker_set, into = c("species", "what"), sep = "_") %>%
+  rename(
+    indiv = fish,
+    n = geno
+  )
+
+diags <- genos_filt_split %>%
+  filter(what == "diag") %>%
+  rename(diag_spp = species) %>%
+  select(-what) %>%
+  arrange(indiv, chrom, pos, diag_spp)
+
+var_sites <- genos_filt_split %>%
+  filter(what == "var") %>%
+  rename(var_spp = species) %>%
+  select(-what) %>%
+  arrange(indiv, chrom, pos, var_spp)
+
+dir.create("BigData/CycloneCreek/Processed", showWarnings = FALSE)
+
+write_rds(
+  diags,
+  file = "BigData/CycloneCreek/Processed/spp_diagnostics.rds",
+  compress = "xz"
+)
+
+write_rds(
+  var_sites,
+  file = "BigData/CycloneCreek/Processed/var_sites.rds",
+  compress = "xz"
+)
+```

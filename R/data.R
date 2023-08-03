@@ -8,3 +8,12 @@
 #' @name diag_markers_10_fish
 NULL
 
+
+
+#' An empty interval object saved in data for convenience
+#'
+#' @format An interval object
+#' @source I created it
+#' @docType data
+#' @name IntervalsEmpty
+NULL

@@ -1,0 +1,40 @@
+---
+title: "Developing the method with cyclone creek"
+output: html_document
+date: "2023-08-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+First off, let's get the diagnostic markers done up for them.  This block
+does not get evaluated in this notebook, because I do it in a terminal
+R session so that I can use future and give it 8 cores.
+```{r, eval=FALSE}
+library(tidyverse)
+library(MixedUpParents)
+# get test data set as M
+M <- read_rds("BigData/CycloneCreek/Processed/spp_diagnostics.rds")
+
+# find the ancestral-n-segments
+D <- ancestral_n_segments(M, unique(M$chrom))
+
+#' find the extended segments:
+#' set the number of cores:
+future::plan(future::multicore, workers = 8)  # 8 cores on my laptop
+
+
+# extend those ancestral segments
+E <- extend_ancestral_segments_3(D, c("WCT", "RBT", "YCT"))
+# That takes a while because the Intervals package functions
+# are pretty darn slow.
+
+# write that out:
+write_rds(E, file = "BigData/CycloneCreek/Processed/extended_anc_segs.rds", compress = "xz")
+```
+
+Now, we can read that in:
+```{r}
+E <- read_rds("BigData/CycloneCreek/Processed/extended_anc_segs.rds")
+```

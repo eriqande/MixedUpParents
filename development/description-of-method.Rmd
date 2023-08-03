@@ -135,6 +135,11 @@ I have implemented the above in the function `extend_ancestral_segments_3()`. It
 when we start doing operations on all pairs of individuals we are going to need to
 write our own code with RCpp to make it fast enough...)
 
+In addition to the operation above, I also merge intervals with the same ancestry
+on the same chromosome in the same individual if they are within 8 bp of one another.
+This removes the holes that can occur when a single species-diagnostic marker
+in a run of one particular ancestry has what is likely a genotyping error.
+
 I have checked the output of this function and it looks pretty right on.  I have put
 it on the old figure we had of the doses of different diagnostic segments.  The top
 bar, surrounded by a thin black line gives the full ancestral copy number segments

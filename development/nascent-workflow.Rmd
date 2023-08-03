@@ -1,0 +1,69 @@
+---
+title: "The Nascent Workflow"
+output: html_notebook
+---
+
+This is just a notebook to remind me how to get to the bleeding edge of
+development with the small test data set so that I can pick up working
+on things easily.
+
+The example to plot_ancestral_segs summarizes it pretty well:
+
+**Hey! You can't do this fast from within RStudio because it is unstable with
+respect to parallel processing with the future package**
+
+```{r}
+library(tidyverse)
+library(MixedUpParents)
+# get test data set as M
+M <- diag_markers_10_fish
+
+# find the ancestral-n-segments
+D <- ancestral_n_segments(M, unique(M$chrom))
+
+
+#' find the extended segments:
+#' set the number of cores:
+future::plan(future::multicore, workers = 8)  # 8 cores on my laptop
+
+
+# extend those ancestral segments
+E <- extend_ancestral_segments_3(D, c("WCT", "RBT", "YCT"))
+
+
+# if you want to plot things you can:
+#' # g2 <- plot_ancestral_segs(D, M, E = E)
+#'
+#' #' # with many individuals, it is recommended to plot this large:
+#' # like: ggsave(g2, filename = "E-gplot.pdf", width = 30, height = 40)
+```
+
+Then, continuing, I can turn the E tibble into something that is suitable for
+intersecting intervals in RCpp:
+```{r}
+Eir <- integer_representation_EAS(E)
+```
+
+And with a data structure like Eir, I can intersect the intervals on the different
+chromosomes between whatever pairs of indivs I want to.  This is done with the Rcpp
+function, intersect_ancestry_intervals_rcpp().  
+```{r}
+boing <- intersect_ancestry_intervals_rcpp(
+  grp1 = 0:3,
+  grp2 = 6:9,
+  nC = Eir$nChrom,
+  V1 = Eir$IntervalsMatrix,
+  V2 = Eir$IntervalsMatrix,
+  X1 = Eir$IndexMatrix,
+  X2 = Eir$IndexMatrix,
+  nv1 = Eir$nIntvlsVec,
+  nv2 = Eir$nIntvlsVec
+) 
+```
+
+OK! The above function seems to be working, but there are some things that I need to do:
+
+1. Merge adjacent intervals in `extend_ancestral_segments_3()`.  I think there is a function for
+that.  The issue can be seen in the figure for the segments for `OcLang16_185` on some of the chromosomes
+where there was one marker that had an aberrant call.  Basically, if two segments with the same ancestry
+are within 10 bp of one another they should be merged, I think.

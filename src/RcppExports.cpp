@@ -10,6 +10,25 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// intersect_ancestry_intervals_rcpp
+IntegerMatrix intersect_ancestry_intervals_rcpp(IntegerVector grp1, IntegerVector grp2, int nC, IntegerMatrix V1, IntegerMatrix V2, IntegerMatrix X1, IntegerMatrix X2, IntegerVector nv1, IntegerVector nv2);
+RcppExport SEXP _MixedUpParents_intersect_ancestry_intervals_rcpp(SEXP grp1SEXP, SEXP grp2SEXP, SEXP nCSEXP, SEXP V1SEXP, SEXP V2SEXP, SEXP X1SEXP, SEXP X2SEXP, SEXP nv1SEXP, SEXP nv2SEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< IntegerVector >::type grp1(grp1SEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type grp2(grp2SEXP);
+    Rcpp::traits::input_parameter< int >::type nC(nCSEXP);
+    Rcpp::traits::input_parameter< IntegerMatrix >::type V1(V1SEXP);
+    Rcpp::traits::input_parameter< IntegerMatrix >::type V2(V2SEXP);
+    Rcpp::traits::input_parameter< IntegerMatrix >::type X1(X1SEXP);
+    Rcpp::traits::input_parameter< IntegerMatrix >::type X2(X2SEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type nv1(nv1SEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type nv2(nv2SEXP);
+    rcpp_result_gen = Rcpp::wrap(intersect_ancestry_intervals_rcpp(grp1, grp2, nC, V1, V2, X1, X2, nv1, nv2));
+    return rcpp_result_gen;
+END_RCPP
+}
 // rcpp_hello
 List rcpp_hello();
 RcppExport SEXP _MixedUpParents_rcpp_hello() {
@@ -22,6 +41,7 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_MixedUpParents_intersect_ancestry_intervals_rcpp", (DL_FUNC) &_MixedUpParents_intersect_ancestry_intervals_rcpp, 9},
     {"_MixedUpParents_rcpp_hello", (DL_FUNC) &_MixedUpParents_rcpp_hello, 0},
     {NULL, NULL, 0}
 };

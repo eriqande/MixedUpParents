@@ -120,7 +120,7 @@ extend_ancestral_segments_3 <- function(D, diag_spp_levels) {
   # little 2-base pair fragments here and there.  I suspect it has to do with
   # how it handles open and closed stuff.  So, I will just toss those short
   # ones
-  D4 %>%
+  D5 <- D4 %>%
     mutate(
       inttib = map(intv, function(x) {
         colnames(x) <- c("start", "stop");
@@ -131,4 +131,38 @@ extend_ancestral_segments_3 <- function(D, diag_spp_levels) {
     arrange(indiv, chrom_f, start) %>%
     filter(stop - start > 10)
 
+  # for our last hurrah, we will merge intervals that are within
+  # 10 bp of one another (this typically happens when you have a genotyping
+  # error at a single species diagnostic marker, but you have information from
+  # the markers diagnostic for the other species telling you information there).
+  # This could probably be done via the intervals package, but that is
+  # quite slow and I think a tidyverse solution is in order here. It is somewhat
+  # complicated by the fact that you might need to merge multiple adjacent ones,
+  # but I ought to be able to solve that with some run length encoding acrobatics.
+  D6 <- D5 %>%
+    group_by(indiv, chrom_f) %>%
+    mutate(
+      drop_it = replace_na(chrom_f == lead(chrom_f) & copy_num == lead(copy_num) & abs(stop - lead(start)) < 8, FALSE),
+      mod_start = replace_na(chrom_f == lag(chrom_f) & copy_num == lag(copy_num) & abs(start - lag(stop)) < 8, FALSE),
+      block = drop_it | mod_start,
+      rle_group = {x <- rle(block); rep(1:length(x$lengths), x$lengths)}
+    ) %>%
+    group_by(indiv, chrom_f, rle_group) %>%
+    mutate(
+      rank = 1:n(),
+      start = ifelse(mod_start & rank == n(), start[1], start),  # this is where things get merged by making the start go further back on the last one
+    ) %>%
+    ungroup() %>%
+    filter(!drop_it)
+
+
+  # here to check that last operation, while coding, these lines calculate the total
+  # interval length:
+  #tot_length <- function(x) {
+  #  x %>% summarise(tot_length = sum(stop - start))
+  #}
+  #tot_length(D5)
+  #tot_length(ungroup(D6))
+
+  D6[, names(D5)]
 }
