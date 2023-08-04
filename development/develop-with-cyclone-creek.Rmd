@@ -38,3 +38,18 @@ Now, we can read that in:
 ```{r}
 E <- read_rds("BigData/CycloneCreek/Processed/extended_anc_segs.rds")
 ```
+
+I put some code in the function `summarize_extended_anc_segs()` but there is much more
+to be done there.  However, I got a nice figure that showed that there is good
+variation on the ancestry fractions, etc. 
+
+## Estimating allele frequencies
+
+This part should be pretty mellow.  For the scale of data we have,
+we ought to be able to just left join the variable genotypes by
+individual and chromosome, and then filter out things that are not
+included in ancestral-copy-number-inferred segments.
+
+```{r}
+V <- read_rds("BigData/CycloneCreek/Processed/var_sites.rds")
+```

@@ -42,9 +42,14 @@ summarize_extended_anc_segs <- function(E) {
   fracts_ord <- fracts %>%
     mutate(
       indiv_f = factor(indiv, levels = A_ord),
-      copy_num_f = factor(copy_num, levels = catOrd)
-    )
+      copy_num_f = factor(copy_num, levels = catOrd),
+      group = as.integer(floor(as.integer(indiv_f) / 100)) + 1L
+    ) %>%
+    arrange(indiv_f)
 
-  ggplot(fracts_ord, aes(x = indiv_f, y = fract, fill = copy_num_f)) +
-    geom_col()
+  tmp <- ggplot(fracts_ord, aes(x = indiv_f, y = fract, fill = copy_num_f)) +
+    geom_col() +
+    facet_wrap(~ group, ncol = 1, scales = "free_x")
+
+  ggsave(tmp,  filename = "grouped-ancestries.pdf", width = 10, height = 30)
 }
