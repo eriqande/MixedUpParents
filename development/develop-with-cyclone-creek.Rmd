@@ -36,6 +36,8 @@ write_rds(E, file = "BigData/CycloneCreek/Processed/extended_anc_segs.rds", comp
 
 Now, we can read that in:
 ```{r}
+library(tidyverse)
+library(MixedUpParents)
 E <- read_rds("BigData/CycloneCreek/Processed/extended_anc_segs.rds")
 ```
 
@@ -51,5 +53,280 @@ individual and chromosome, and then filter out things that are not
 included in ancestral-copy-number-inferred segments.
 
 ```{r}
+source("../R/estimate_allele_freqs_EM.R")
 V <- read_rds("BigData/CycloneCreek/Processed/var_sites.rds")
+
+afem_list <- estimate_allele_freqs_EM(E, V)
+AlleFreqs <- afem_list$alle_freqs
+GenoCounts <- afem_list$geno_counts
 ```
+
+The output of AlleFreqs is a little complex:
+```{r}
+head(AlleFreqs)
+```
+
+Let us see how much allele frequencies changed as a result of doing the EM:
+```{r}
+ggplot(AlleFreqs, aes(x = p_init1, y = pnew1, colour = Ancestry)) +
+  geom_point() +
+  facet_wrap(~ Ancestry)
+```
+
+OK, so most of the frequencies in the RBT background are different after including
+the individuals that are heterozygous for both the ancestry and the alleles.
+
+Now, I want to color it according to whether the locus was considered to be a WCT-
+or an RBT-variable marker.
+```{r}
+AlleFreqs %>%
+  left_join(
+    V %>% 
+      distinct(var_spp, chrom, pos) %>% 
+      mutate(chrom_f = factor(chrom, levels = levels(AlleFreqs$chrom_f))),
+    by = c("chrom_f", "pos")
+  ) %>%
+  ggplot(aes(x = p_init1, y = pnew1, colour = var_spp)) +
+  geom_point() +
+  facet_wrap(~ Ancestry)
+```
+
+Well, that is super weird.  I've spot checked a few of them, and it seems that the
+allele in question shows up occasionally in the homozygous RBT, and sometimes in homozygous
+form in the WCT/RBT hets.  
+
+Let's color the points by the frequency of the allele in WCT:
+```{r}
+AlleFreqs %>%
+  group_by(chrom_f, pos) %>%
+  mutate(WCTfreq1 = pnew1[Ancestry == "A"]) %>%
+  ggplot(aes(x = p_init1, y = pnew1, colour = WCTfreq1)) +
+  geom_point() +
+  facet_wrap(~ Ancestry) +
+  scale_colour_viridis_c()
+```
+
+OK, these are basically mostly SNPs that are effectively mononorphic in the WCT background,
+but which are polymorphic in RBT.  Gonna have to think on that a little bit...
+
+**After a long hiatus, I am returning to this while at the ConGen**
+
+I actually think this is OK.  One thing I would like to check is that the expected proportions
+of genotypes _within_ each of the different backgrounds, are what we would expect
+with random drawing of alleles onto each background. Basically, if we let
+$p_{A0}$ and $p_{A1}$ be the estimated freqs of alleles 0 and 1 on the $A$ background,
+and $p_{B0}$ and $p_{B1}$ be the same on the $B$ background, then for the three
+relevant different ancestries we have:
+$$
+\begin{aligned}
+\mathrm{Ancestry} &  ~~~~~~~~~~~\mathrm{Genotype} &~ \mathrm{Prob~of~genotype} \\
+A_2B_0C_0  &~~~~~~~~~~~~    0    &~   p_{A0}^2 \\
+  &~~~~~~~~~~~~    1    &~   2p_{A0}p_{A1} \\
+  &~~~~~~~~~~~~    2    &~   p_{A1}^2 \\
+\\
+A_0B_2C_0  &~~~~~~~~~~~~    0    &~   p_{B0}^2 \\
+  &~~~~~~~~~~~~    1    &~   2p_{B0}p_{B1} \\
+  &~~~~~~~~~~~~    2    &~   p_{B1}^2 \\
+\\
+A_1B_1C_0  &~~~~~~~~~~~~    0    &~   p_{A0}p_{B0} \\
+  &~~~~~~~~~~~~    1    &~   p_{A0}p_{B1} + p_{B0}p_{A1} \\
+  &~~~~~~~~~~~~    2    &~   p_{A1}p_{B1} \\
+\end{aligned}
+$$
+
+
+So, we can calculate the expected number of genotypes in each ancestry group
+for each locus.  
+
+Let's make a tibble that has all those frequencies for each allele, and then
+calculate these genotype frequencies for different ancestries.
+```{r}
+expected_geno_freqs <- AlleFreqs %>%
+  filter(Ancestry %in% c("A", "B")) %>%
+  select(chrom_f, pos, Ancestry, starts_with("pnew")) %>%
+  rename(p0 = pnew0, p1 = pnew1) %>%
+  pivot_wider(
+    names_from = Ancestry,
+    values_from = c(p0, p1),
+    names_sep = ""
+  ) %>%
+  expand_grid(
+    copy_num = c("A2B0C0", "A1B1C0", "A0B2C0"),
+    .
+  ) %>%
+  arrange(chrom_f, pos, copy_num) %>% # this has given us the copy nums and the alle freqs and now we compute the prob of 0, 1, or 2, genos
+  mutate(
+    Pg0 = case_when(
+      copy_num == "A2B0C0" ~ p0A ^ 2,
+      copy_num == "A0B2C0" ~ p0B ^ 2,
+      copy_num == "A1B1C0" ~ p0A * p0B
+    ),
+    Pg1 = case_when(
+      copy_num == "A2B0C0" ~ 2 * p0A * p1A,
+      copy_num == "A0B2C0" ~ 2 * p0B * p1B,
+      copy_num == "A1B1C0" ~ p0A * p1B + p1A * p0B
+    ),
+    Pg2 = case_when(
+      copy_num == "A2B0C0" ~ p1A ^ 2,
+      copy_num == "A0B2C0" ~ p1B ^ 2,
+      copy_num == "A1B1C0" ~ p1A * p1B
+    )
+  ) %>%
+  select(-(p0A:p1B)) %>%
+  pivot_longer(
+    cols = c(Pg0, Pg1, Pg2),
+    names_to = "geno", 
+    values_to = "exp_GP"
+  ) %>%
+  mutate(geno = as.integer(str_sub(geno, 3, 3)))
+```
+
+OK! That gave us the expected genotype frequencies.
+
+Now, we want to take the observed genotype counts, complete them, and then
+calculate their relative freqs.
+```{r}
+observed_geno_freqs <- GenoCounts %>%
+  filter(copy_num %in% c("A2B0C0", "A1B1C0", "A0B2C0")) %>%
+  complete(
+    nesting(chrom_f, pos), copy_num, geno,
+    fill = list(n = 0L)
+  ) %>%
+  group_by(chrom_f, pos, copy_num) %>%
+  mutate(
+    obs_GP = n / sum(n)
+  )
+  
+```
+
+Now we can compare those:
+```{r}
+exp_and_obs_geno_freqs <- observed_geno_freqs %>%
+  left_join(expected_geno_freqs, by = c("chrom_f", "pos", "copy_num", "geno"))
+```
+
+Plot them in a big facet_grid
+```{r}
+ggplot(exp_and_obs_geno_freqs, aes(x = exp_GP, y = obs_GP, colour = copy_num)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  facet_grid(copy_num ~ geno)
+```
+
+That is pretty great.  It looks much like we would expect it to. There are clearly
+a couple of loci that are not modelled super well.  Let us colour these points
+by some sort of significance value for being off the line.  We could colour them by
+a z-score given the expected binomial proportion and the associated variance/sd:
+
+```{r}
+exp_and_obs_geno_freqs_2 <- exp_and_obs_geno_freqs %>%
+  group_by(chrom_f, pos, copy_num) %>%
+  mutate(tot_n = sum(n)) %>%
+  ungroup() %>%
+  mutate(z_score = (exp_GP - obs_GP) * sqrt(tot_n / (exp_GP * (1 - exp_GP))))
+
+# first look at the distribution of the z_scores
+ggplot(exp_and_obs_geno_freqs_2, aes(x = z_score)) +
+  geom_histogram()
+```
+
+Wow! There are a tiny few that are totally wonky.  So, let's filter a bit
+so that they are not pulling our color scale too far out.
+
+```{r}
+exp_and_obs_geno_freqs_2 %>%
+  filter(abs(z_score) < 9) %>%
+  ggplot(aes(x = exp_GP, y = obs_GP, colour = abs(z_score))) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  facet_grid(copy_num ~ geno) +
+  scale_colour_viridis_c()
+```
+OK.  There are a few that are sort of out.  But it is not too, too many.
+
+Let's plot the histogram after this sort of filtering:
+```{r}
+exp_and_obs_geno_freqs_2 %>%
+  filter(abs(z_score) < 9) %>%
+  ggplot(aes(x = z_score)) +
+  geom_histogram() +
+  facet_grid(copy_num ~ geno)
+           
+```
+
+
+So, how many markers are we left with if we filter out those that have nothing
+as bad as $|z| > 3.09$ (which gives a cumulative prob of 1 out of 1000; so, it is like
+a p-value of 0.001) within the copy_num at a site.
+
+```{r}
+exp_and_obs_geno_freqs_3 <- exp_and_obs_geno_freqs_2 %>%
+  group_by(chrom_f, pos, copy_num) %>%
+  filter(all(abs(z_score) < 3.09))
+
+
+ggplot(exp_and_obs_geno_freqs_3, aes(x = exp_GP, y = obs_GP, colour = abs(z_score))) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  facet_grid(copy_num ~ geno) +
+  scale_colour_viridis_c()
+```
+Let's see how many loci this is, total
+```{r}
+exp_and_obs_geno_freqs_3 %>%
+  count(chrom_f, pos)
+```
+Still quite a few.  
+
+Let's look at the estimated allele frequencies of these.   We will look at the
+frequency of the 1 allele in each case.
+```{r}
+retained_freqs <- AlleFreqs %>% 
+  semi_join(exp_and_obs_geno_freqs_3, by = c("chrom_f", "pos")) %>%
+  filter(Ancestry != "C") %>%
+  mutate(MAF = pmin(pnew1, 1 - pnew1))
+
+ggplot(retained_freqs, aes(x = MAF)) +
+  geom_histogram() + 
+  facet_wrap(~Ancestry, nrow = 1)
+```
+
+
+So, let's count up the MAFs:
+```{r, rows.print=30}
+retained_freqs2 <- retained_freqs %>%
+  mutate(maf_bin = cut_width(MAF, 0.05))
+
+retained_freqs2 %>%
+  count(Ancestry, maf_bin)
+```
+
+So, that is pretty cool.   Let's count up the total number of markers
+in each genetic background with allele frequencies greater then 0.125:
+```{r}
+retained_freqs2 %>%
+  group_by(Ancestry) %>%
+  summarise(numLoc_gt_12.5 = sum(as.integer(maf_bin) > 3))
+```
+
+So, those are pretty decent numbers of markers that we will have to work with, I think.
+
+From these.  Let's see how different the frequencies in A and B background are at all
+of these.  My guess is that they are probably fixed in the other background, for the most part.
+```{r}
+keepers_gt_12.5 <- retained_freqs2 %>%
+  filter(as.integer(maf_bin) > 3) %>%
+  select(chrom_f, pos, Ancestry, MAF) %>%
+  pivot_wider(names_from = Ancestry, values_from = MAF, values_fill = 0L)
+
+ggplot(keepers_gt_12.5, aes(x = A, y = B)) +
+  geom_point()
+```
+
+So, it looks like some of these are polymorphic in both backgrounds.
+
+I think we are going to be good do go with these to further develop the
+methodology.
+
+
+
