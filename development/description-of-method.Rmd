@@ -13,7 +13,8 @@ Herein we describe a method for conducting parentage inference within population
 of individuals that are admixed between up to 3 species or subspecies.  The
 particular use case we have in mind is one in which parentage inference is to be
 done in populations with individuals admixed between westslope cutthroat trout,
-rainbow trout, and yellowstone cutthroat trout.  However, while describing it
+rainbow trout, and, to a much lesser degree, if at all, yellowstone cutthroat trout.
+However, while describing it
 we will simply refer to three different subspecies or ancestries: $A$, $B$, and $C$.
 Note that we could expand the number of different subspecies if desired, but we
 are focusing on three at this point because of our particular use case.
@@ -37,11 +38,11 @@ easy to account for chromosomal segments of distinct ancestry in the individuals
 under study.
 
 In the first step, we use the diagnostic markers to identify genomic regions that
-carry $A$, $B$, or $C$ ancestry upon 0, 1, or 2 chromosomes.  The second step is
-where we calculate the likelihood ratio for parent-offspring vs unrelated. This
-step is done conditional on the inferred number of copies of different ancestry at each
-of the variable markers that is situated within a region for which the ancestry
-of both the candidate parent and candidate offspring are inferred.  We will explain each of
+carry $A$, $B$, or $C$ ancestry upon 0, 1, or 2 chromosomes within each sampled
+individual.  In the second step, we calculate the likelihood ratio for parent-offspring vs unrelated. This
+step is done conditional on the inferred number of copies of different ancestry,
+at both the candidate parent and offspring, at the location of each
+of the variable markers.  We will explain each of
 these steps (and several other necessary steps) in the following sections.
 
 
@@ -51,8 +52,8 @@ In order to infer the copy-number (0, 1, or 2) of different ancestries ($A$, $B$
 in genomic segments throughout the genome we use a simple heuristic rule to combine
 runs of diagnostic marker genotypes into segments. Taking the $A$-diagnostic markers
 for an example, at each $A$-diagnostic marker we observe either 0, 1, or 2 copies of the $A$-diagnostic
-allele.  After removing missing data, any two adjacent $A$-diagnostic markers
-(on the same chromosome, of course) with the
+allele.  After removing missing data, any two adjacent $A$-diagnostic markers,
+on the same chromosome, with the
 same number of copies of $A$-diagnostic alleles define an $A$-diagnostic segment
 with that number of copies.  For example, if two adjacent markers each show 2 copies
 of the $A$-diagnosic allele, then the segment between them is identified as having
@@ -64,30 +65,25 @@ We will let $A_x$, $x\in\{0,1,2\}$ denote the set of intervals within the genome
 at which the individual is identified to have $x$ copies of $A$ ancestry. $B_x$ and
 $C_x$ are sets defined similarly for $B$ and $C$ ancestry.  
 
-After doing this on the subset of individuals Jared gave me a while ago,
-and making a figure to visualize the results for those 10 individuals,
-it was clear that it would be advantageous (because the diagnostic markers for some
-subspecies might not be as widespread as those for another) to use the results for
+Because the diagnostic markers for some
+subspecies might not be as widespread as those for another, it can
+be advantageous to use, for example, the results for
 $B$ and $C$ to help infer $A$ segments as well---in other words, if you are at part of the
 genome where you don't have many $A$ markers, but you do have $B$- and $C$-diagnostic
 markers, and you see that you have zero $B$-diagnostic and zero $C$-diagnostic alleles at
 those markers, then
 it is reasonable to assume that you have 2 copies of $A$ there.  By this method we can
-somewhat extend the length of intervals of known/estimated ancestry copy number.
+extend the length of intervals of inferred ancestry copy number.
 While we are doing that we can also remove segments that are contradictory
 in terms of their ancestry copy numbers---for example, those that have 2 copies
-of a $C$-diagnostic allele but also 1 copy of a $B$-diagnostic allele.  Thankfully,
-in my early explorations of some of the data Jared gave me, I found very few of those
-contradictory segments, which is part of the reason why I feel this approach might
-actually work well.
+of a $C$-diagnostic allele but also 1 copy of a $B$-diagnostic allele, though, in
+the trout data, we found very few of these contradictory segments.
 
-Making extended segments and also identifying contradictory segments can be done
-using interval arithmetic like what is implemented
-in _bedtools_.  There is an R wrapper for bedtools in the 'bedr' package, but for
-repeated application of that, it seems there is way too much overhead in writing
-files, etc.  So, going forward we will use the 'intervals' package, which is also
-not super efficient, but we can make it work for the first part of this work.
-
+We make these extended segments and also identify contradictory segments
+using interval arithmetic as implemented
+in the R package 'bedtools.' Though that package is not particularly fast, the operations
+can be parallelized over individuals which allows us to handle the thousands of of
+trout in the data set.
 Let $X \cup Y$ denote the union of sets of intervals, $X$ and $Y$, and $X \cap Y$
 denote the interval-intersection of those same sets of intervals (i.e., all the overlapping
 segments between the intervals in $X$ and in $Y$), and $X - Y$ denote
