@@ -90,23 +90,7 @@ segments between the intervals in $X$ and in $Y$), and $X - Y$ denote
 the set-difference (all the intervals in $X$ after removing any overlaps with $Y$).
 With that notation we can easily write down rules for the sets of ancestry-copy-number
 intervals after "extending" them by using available information from the other
-subspecies. We denote the extended sets with a superscript $\mbox{}^\uparrow$.
-$$
-\begin{aligned}
-A_1^\uparrow &= A_1 \cup ((B_1 \cap C_0) \cup (B_0 \cap C_1)) - (A_0 \cup A_2) \\
-A_2^\uparrow &= A_2 \cup ((B_0 \cap C_0) \cup (B_0 \cap C_0)) - (A_0 \cup A_1) \\
-B_1^\uparrow &= B_1 \cup ((A_1 \cap C_0) \cup (A_0 \cap C_1)) - (B_0 \cup B_2) \\
-B_2^\uparrow &= B_2 \cup ((A_0 \cap C_0) \cup (A_0 \cap C_0)) - (B_0 \cup B_1) \\
-C_1^\uparrow &= C_1 \cup ((A_1 \cap B_0) \cup (A_0 \cap B_1)) - (C_0 \cup C_2) \\
-C_2^\uparrow &= C_2 \cup ((A_0 \cap B_0) \cup (A_0 \cap B_0)) - (C_0 \cup C_1) \\
-\end{aligned}
-$$
-
-And from intersections of those we can find, for example, $A_1B_1C_0$---segments with
-one copy of ancestry from $A$ and one copy from $B$. However, as I look at this problem,
-I realize that it might be
-more efficient to just identify those segments immediately, rather than storing the intermediate
-values above.  So, in fact, this is how we want to do it below.  Let $A_xB_yC_z$ denote
+subspecies. Let $A_xB_yC_z$ denote
 the extended copy-number intervals in which the individual carries $x$ copies of $A$,
 $y$ copies of $B$, and $z$ copies of $C$.  Since these are diploid organisms any
 allowable value of $A_xB_yC_z$ must have $x,y,z \in \{0, 1, 2\}$ and $x + y + z = 2$.
@@ -125,16 +109,19 @@ A_0B_0C_2 &= C_2 \cup \bigl((A_0 \cap B_0) - (C_0 \cup C_1)\bigr) \\
 \end{aligned}
 $$
 
+In addition to the operations above, we do a final step of merging intervals with the same ancestry
+on the same chromosome in the same individual if they are within 8 bp of one another.
+This removes the holes that can occur when a single species-diagnostic marker
+in a run of one particular ancestry has experienced a genotyping error.
+
+## Implementation Notes
+
 I have implemented the above in the function `extend_ancestral_segments_3()`. It uses the
 'intervals' package.  It is not super fast, but we can parallelize it using the
 'furrr' package, which makes it tolerable for operations on individuals. (But I note that
 when we start doing operations on all pairs of individuals we are going to need to
 write our own code with RCpp to make it fast enough...)
 
-In addition to the operation above, I also merge intervals with the same ancestry
-on the same chromosome in the same individual if they are within 8 bp of one another.
-This removes the holes that can occur when a single species-diagnostic marker
-in a run of one particular ancestry has what is likely a genotyping error.
 
 I have checked the output of this function and it looks pretty right on.  I have put
 it on the old figure we had of the doses of different diagnostic segments.  The top
@@ -149,35 +136,39 @@ knitr::include_graphics("figures/E-gplot.pdf")
 
 # Estimating allele frequencies
 
-Once the genomes of all the individuals in a population have been segmented into the
+With the genomes of all the individuals in a population segmented into the
 six ancestry-copy-number categories above, we can estimate the frequencies of the
 _variable_-marker alleles on each of the three backgrounds, A, B, or C, within the
 population, using an EM-algorithm. 
 
 Consider a single variable-marker locus with alleles $a_i, a_j,\ldots$. Let $n_{xyz}(a_ia_j)$ denote
-the number of individuals in which this locus occurs within an $A_xB_yC_z$ segment
-and at which the genotype of the individual at the variable-marker locus is $a_ia_j$. 
-There are a number of scenarios in which it
-is pretty easy to count alleles. For example, to count up the $a_i$ alleles that we know must be on the $A$
-background, we start with:
+the number of individuals that have variable marker genotype $a_ia_j$ and also in which this locus occurs within an $A_xB_yC_z$ segment. 
+In many cases, it is straightforward to count the number of alleles of different types that
+must occur on a particular background (i.e., on an $A$, $B$, or $C$ background). For example, if we
+are counting the number of $a_i$ alleles that occur on the $A$ background, there are many individual
+genotypes in which we can be certain that the $a_i$ allele occurs on the $A$ backgound, and we can
+count them directly.  In fact, the number of $a_i$ alleles on the $A$ background that we are certain
+of can be expressed as:
 $$
 2n_{200}(a_ia_i) + n_{110}(a_ia_i) + n_{101}(a_ia_i) + \sum_{j\neq i} n_{200}(a_ia_j),
 $$
-because there is no ambiguity about those.  In fact, the only scenarios that are
+The only scenarios that are
 ambiguous about how many $a_i$ alleles are on
 the $A$ background are ones in which the individual is heterozygous at the locus and
-has only one copy of the $A$ ancestry---namely the ones covered by
+has only one copy of the $A$ ancestry---namely the individuals counted by
 $$
 n_{110}(a_ia_j)~~~\mbox{and}~~~n_{101}(a_ia_j)~~~\forall j\neq i
 $$
-And this is where the EM-algorithm comes in.  We can count up "fractional" parts
-of $a_i$ alleles according to the posterior probability that they are on the
-$A$ background given the current estimates of the frequency of the $a_i$ allele on
-the $A$ background. Let $p_A(a_i)$, $p_B(a_i)$, and $p_C(a_i)$ be the
-current "guesses" for the frequencies of allele $a_i$ on each of the three ancestry
-backgrounds. Quite simply, then, for the $n_{110}(a_ia_j)$ and $n_{101}(a_ia_j)$ cases,
+To incorporate the observations of alleles in such individuals we use the
+EM algorithm to find the maximum likelihood estimate of allele frequencies
+on different ancestry backgounds.  To do so we can count up "fractional" parts
+alleles according to the posterior probability that they are on the
+$A$ (or $B$ or $C$) background given the current estimates of the frequency of those alleles on
+each background. Let $p_A(a_i)$, $p_B(a_i)$, and $p_C(a_i)$ be the
+current estimates for the frequencies of allele $a_i$ on each of the three ancestry
+backgrounds. Then, for the $n_{110}(a_ia_j)$ and $n_{101}(a_ia_j)$ cases,
 _a priori_ (i.e., without looking at the allelic type) the probability that the
-$a_i$ allele is on the $A$-background is $\frac{1}{2}$, and with probably $\frac{1}{2}$
+$a_i$ allele is on the $A$-background is $\frac{1}{2}$, and with probability $\frac{1}{2}$
 it is on the $B$ or $C$ background respectively.  So, the posterior probability
 that the $a_i$ is on the $A$ background in each case is:
 $$
@@ -186,10 +177,8 @@ q^{(A)}_{110}(a_i;a_j) &=\frac{p_A(a_i)p_B(a_j)}{p_A(a_i)p_B(a_j) + p_A(a_j)p_B(
 q^{(A)}_{101}(a_i;a_j) &=\frac{p_A(a_i)p_C(a_j)}{p_A(a_i)p_C(a_j) + p_A(a_j)p_C(a_i)}~~~~,~~~~\mbox{for the}~n_{101}(a_i, a_j)~\mbox{case} \\
 \end{aligned}
 $$
-And so, given current estimates of $p_A(a_i)$, $p_B(a_i)$, and $p_C(a_i)$, we find new estimates
-by first counting up the number of alleles (including "fractional" alleles), for each $a_i$. This is
-the E-step (I think---I always have a hard time formally figuring out which is the
-E and which is the M step).
+Thus, given current estimates of $p_A(a_i)$, $p_B(a_i)$, and $p_C(a_i)$, we find new estimates
+by first conducting the Expectation or "E" step---counting up the number of alleles (including "fractional" alleles), for each $a_i$:
 $$
 \begin{aligned}
 N^\prime_A(a_i) &= 2n_{200}(a_ia_i) + n_{110}(a_ia_i) + n_{101}(a_ia_i) + \sum_{j\neq i} \biggl(n_{200}(a_ia_j) + q^{(A)}_{110}(a_i;a_j)n_{110}(a_ia_j) + q^{(A)}_{101}(a_i;a_j)n_{101}(a_ia_j)  \biggr) \\
@@ -197,15 +186,14 @@ N^\prime_B(a_i) &= 2n_{020}(a_ia_i) + n_{110}(a_ia_i) + n_{011}(a_ia_i) + \sum_{
 N^\prime_C(a_i) &= 2n_{002}(a_ia_i) + n_{101}(a_ia_i) + n_{011}(a_ia_i) + \sum_{j\neq i} \biggl(n_{002}(a_ia_j) + q^{(C)}_{101}(a_i;a_j)n_{101}(a_ia_j) + q^{(C)}_{011}(a_i;a_j)n_{011}(a_ia_j)  \biggr) \\
 \end{aligned}
 $$
-Then, with all of those in hand, we do the M-step, finding the maximum likelihood estimate of the
-$p$'s:
+With those estimate counts in hand, we do the Maximization or "M" step, finding
+the maximum likelihood estimate of the $p$'s:
 $$
 p^\prime_X(a_i) = \frac{N^\prime_X(a_i)}{\sum_k N^\prime_X(a_k)}~~~\mbox{for}~X\in\{A,B,C\}
 $$
-Those steps are iterated to convergence.
+Iterating the E and M steps to convergence yields the maximum likelihood estimates of the
+allele freqencies on the different ancestry backgrounds.
 
-This should be easy to implement, and only has to happen once, so we can just do it all
-within the tidyverse, easily, I suspect.
 
 # Parentage likelihood calculations
 
