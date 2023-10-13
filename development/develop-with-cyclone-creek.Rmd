@@ -122,6 +122,7 @@ afem_list <- estimate_allele_freqs_EM(E, V)
 AlleFreqs <- afem_list$alle_freqs
 GenoCounts <- afem_list$geno_counts
 ```
+<<<<<<< HEAD
 
 The output of AlleFreqs is a little complex:
 ```{r}
