@@ -122,7 +122,7 @@ afem_list <- estimate_allele_freqs_EM(E, V)
 AlleFreqs <- afem_list$alle_freqs
 GenoCounts <- afem_list$geno_counts
 ```
-<<<<<<< HEAD
+
 
 The output of AlleFreqs is a little complex:
 ```{r}
@@ -406,7 +406,54 @@ V %>%
   select(-var_spp, -chrom)
 ```
 
-I'm not there yet...
+I have not done that yet.
 
 
+## Intersecting intervals, etc.
 
+First thing, let's make the integer representation of of E:
+```{r}
+ir_E <- integer_representation_EAS(E)
+```
+
+That is easy.  Now, we should be able to intersect any individuals that we want to.  Let's see what happens if we intersect
+individual 0 with all the rest:
+```{r}
+spoing <- intersect_ancestry_intervals_rcpp(
+  grp1 = 0,
+  grp2 = 1:(ir_E$nIndiv - 1), 
+  nC = ir_E$nChrom, 
+  V1 = ir_E$IntervalsMatrix, 
+  V2 = ir_E$IntervalsMatrix, 
+  X1 = ir_E$IndexMatrix, 
+  X2 = ir_E$IndexMatrix, 
+  nv1 = ir_E$nIntvlsVec, 
+  nv2 = ir_E$nIntvlsVec
+)
+```
+
+That is super fast.  What about if we intersect everyone against everyone else,
+but we don't actually keep track of the results (to save memory---we are just trying
+to see how fast this is).
+
+```{r}
+system.time(for(i in 0:(ir_E$nIndiv - 1)) {
+  biff <- intersect_ancestry_intervals_rcpp(
+    grp1 = i,
+    grp2 = setdiff(0:(ir_E$nIndiv - 1), i),
+    nC = ir_E$nChrom, 
+    V1 = ir_E$IntervalsMatrix, 
+    V2 = ir_E$IntervalsMatrix, 
+    X1 = ir_E$IndexMatrix, 
+    X2 = ir_E$IndexMatrix, 
+    nv1 = ir_E$nIntvlsVec, 
+    nv2 = ir_E$nIntvlsVec
+  )
+  #print(i)
+})
+```
+
+OK.  That is super fast.  About 1.5 million pairs per second.  
+
+Now, what we need to do is add a way to quickly calculate the probability of the genotypes (and hence the likelihood ratio)
+for each intersected pair.  

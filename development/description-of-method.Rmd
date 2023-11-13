@@ -5,6 +5,12 @@ output: pdf_document
 date: "2023-06-22"
 ---
 
+\newcommand{\pa}{{\mathrm{par}}}
+\newcommand{\kid}{{\mathrm{kid}}}
+\newcommand{\ppp}{\psi}
+\newcommand{\opro}{\omega}
+
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -195,7 +201,11 @@ Iterating the E and M steps to convergence yields the maximum likelihood estimat
 allele freqencies on the different ancestry backgrounds.
 
 
-# Parentage likelihood calculations
+# Contributions of the species diagnostic markers to parentage inference
+
+There are two ways that the diagnostic markers can...
+
+# Parentage likelihood calculations with the polymorphic markers
 
 We do the parentage likelihood calculations conditional on the estimated ancestry-copy-numbers of
 the pair of individuals.  For each possible pair of a candidate parent and a candidate offspring
@@ -296,7 +306,164 @@ and I will be ready to start implementing this.  I will do it using RCpp because
 when we are doing this sort of thing between many pairs of individuals, that
 ends up being a lot of computing, and RCpp will be considerably faster.
 
-That's it for now.
+Actually, I am just going to write up a big table for these.  Here is how we do it.  Since
+we are dealing just with SNPs that are biallelic, and we are going to filter down to just
+two species/ancestries, so we have $A_2B_2C_0$, $A_1B_1C_0$, and $A_0B_2C_0$.  And the
+genotypes will be denoted at 0, 1, or 2 (the number of occurrences of the "1" allele). Note
+that the allele frequencies, $p_A$ and $p_B$ are given as the frequency of the 1 allele on the
+$A$ or the $B$ backgrounds, respectively. Genotyping errors are dealt with via the super simple
+model: we assume that the parent genotype is always correctly identified, while the
+offspring genotype is incorrect with probability $\epsilon$, in which case the
+genotype of the offspring just gets drawn from the genotype probs given its ancestry.
+(This has the effect that the ratio becomes $\epsilon$).
+\begin{table}
+\caption{Relevant genotype probabilities when the parent is $A_2B_0C_0$.
+$H$ is the ancestry pattern specified according to the values of the trits when
+the integer is expressed in ternary form ($A_2B_0C_0 = 2$; $A_1B_1C_0 = 4$).
+$\opro_X$ is the probability of receiving a segment from species $X$ from the "other"
+parent---i.e., the one that is not the candidate. The $\opro$'s are, by and large, hard
+to model, because it depends on the distribution of admixture fractions/patterns amongst
+the possible parents in the population, and they are not independent across markers (because
+they all came from a single parent).  I have considered urn-model-like ways of modeling them,
+but I think I might just end up setting them all to 1, so that they don't affect the probability.
+At any rate, the main thing here is that the ultimate probabilities we want for our likelihood
+ratios are not simply the $P(G_\kid|G_\pa, H_\pa, H_\kid, p_A, p_B)$ probabilities, but actually
+we are going to want,
+the $P(H_\kid,G_\kid|G_\pa, H_\pa, p_A, p_B) = P(G_\kid|G_\pa, H_\pa, H_\kid, p_A, p_B)P(H_\kid|H_\pa)$,
+in the numerator and 
+$P(H_\kid,G_\kid| H_\kid,p_A, p_B) = P(G_\kid| H_\kid,p_A, p_B)P(H_\kid)$.  Note that $P(H_\kid)$ would be,
+for example, $\opro_A^2$ if $H_\kid=2$, under the simplest independence assumptions.  So, if we just
+set all the $\opro$'s to 1, that would work out fine.  Hot Damn!  This is starting to make sense (maybe...).
+}
+$$
+\small
+\begin{aligned}
+H_\pa   & & H_\kid & & G_\pa   & & G_\kid  & &P(H_\kid|H_\pa)&  & P(G_\kid|G_\pa, H_\pa, H_\kid, p_A, p_B) &~~~& P(G_\kid| H_\kid,p_A, p_B)\\ \hline
+\\
+2       & & 2      & &  0      & &  0      & & \opro_A          &   &  (1-\epsilon)(1-p_A) + \epsilon(1-p_A)^2                   &   &  (1-p_A)^2 \\
+2       & & 2      & &  0      & &  1      & & \opro_A           &  &  (1-\epsilon)p_A + \epsilon 2p_A(1-p_A)                      &   &  2p_A(1-p_A) \\
+2       & & 2      & &  0      & &  2      & & \opro_A &  &  \epsilon p_A^2             &   &  p_A^2 \\
+\\
+2       & & 2      & &  1      & &  0      & & \opro_A &  &  (1-\epsilon)\frac{1}{2}(1-p_A) + \epsilon(1-p_A)^2                   &   &  (1-p_A)^2 \\
+2       & & 2      & &  1      & &  1      & & \opro_A &  &  (1-\epsilon)\frac{1}{2} + \epsilon 2p_A(1-p_A)                       &   &  2p_A(1-p_A) \\
+2       & & 2      & &  1      & &  2      & & \opro_A &  &  (1-\epsilon)\frac{1}{2}p_A + \epsilon p_A^2             &   &  p_A^2 \\
+\\
+2       & & 2      & &  2      & &  0      & & \opro_A &  &  \epsilon(1-p_A)^2                    &   &  (1-p_A)^2 \\
+2       & & 2      & &  2      & &  1      & & \opro_A &  &  (1-\epsilon)(1-p_A) + \epsilon 2p_A(1-p_A)             &   &  2p_A(1-p_A) \\
+2       & & 2      & &  2      & &  2      & & \opro_A &  &  (1-\epsilon) p_A  + \epsilon p_A^2            &   &  p_A^2 \\
+\\
+2       & & 4      & &  0      & &  0      & & \opro_B &  &  (1-\epsilon)(1-p_B) + \epsilon(1-p_A)(1-p_B)         &   &  (1-p_A)(1-p_B) \\
+2       & & 4      & &  0      & &  1      & & \opro_B &  &  (1-\epsilon)p_B + \epsilon[p_A(1-p_B) + p_B(1-p_A)]         &   &  p_A(1-p_B) + p_B(1-p_A) \\
+2       & & 4      & &  0      & &  2      & & \opro_B &  &  \epsilon p_Ap_B        &   &  p_Ap_B \\
+\\
+2       & & 4      & &  1      & &  0      & & \opro_B &  &  (1-\epsilon)\frac{1}{2}(1-p_B) + \epsilon(1-p_A)(1-p_B)        &   &  (1-p_A)(1-p_B) \\
+2       & & 4      & &  1      & &  1      & & \opro_B &  &  (1-\epsilon)\frac{1}{2} + \epsilon[p_A(1-p_B) + p_B(1-p_A)]         &   &  p_A(1-p_B) + p_B(1-p_A) \\
+2       & & 4      & &  1      & &  2      & & \opro_B &  &  (1-\epsilon)\frac{1}{2}p_B + \epsilon p_Ap_B        &   &  p_Ap_B \\
+\\
+2       & & 4      & &  2      & &  0      & & \opro_B &  &  \epsilon(1-p_A)(1-p_B)                          &   &  (1-p_A)(1-p_B) \\
+2       & & 4      & &  2      & &  1      & & \opro_B &  &  (1-\epsilon)(1-p_B) + \epsilon[p_A(1-p_B) + p_B(1-p_A)]         &   &  p_A(1-p_B) + p_B(1-p_A) \\
+2       & & 4      & &  2      & &  2      & & \opro_B &  &  (1-\epsilon)p_B + \epsilon p_Ap_B        &   &  p_Ap_B \\
+\end{aligned}
+$$
+\end{table}
+
+
+\begin{table}
+\caption{SAME TABLE BUT EXPRESSED DIFFERENTLY. Here the $P^*$ term assumes no genotyping
+error.  And we know that we multiple that by $(1-\epsilon)$ and add $\epsilon$ times the
+kid's marginal genotype probability to get what we need. Dependence on $p_A$ and $p_B$
+is implicit.  Relevant genotype probabilities when the parent is $A_2B_0C_0$.
+$H$ is the ancestry pattern specified according to the values of the trits when
+the integer is expressed in ternary form ($A_2B_0C_0 = 2$; $A_1B_1C_0 = 4$).
+$\opro_X$ is the probability of receiving a segment from species $X$ from the "other"
+parent---i.e., the one that is not the candidate. The $\opro$'s are, by and large, hard
+to model, because it depends on the distribution of admixture fractions/patterns amongst
+the possible parents in the population, and they are not independent across markers (because
+they all came from a single parent).  I have considered urn-model-like ways of modeling them,
+but I think I might just end up setting them all to 1, so that they don't affect the probability.
+At any rate, the main thing here is that the ultimate probabilities we want for our likelihood
+ratios are not simply the $P(G_\kid|G_\pa, H_\pa, H_\kid, p_A, p_B)$ probabilities, but actually
+we are going to want,
+the $P(H_\kid,G_\kid|G_\pa, H_\pa, p_A, p_B) = P(G_\kid|G_\pa, H_\pa, H_\kid, p_A, p_B)P(H_\kid|H_\pa)$,
+in the numerator and 
+$P(H_\kid,G_\kid| H_\kid,p_A, p_B) = P(G_\kid| H_\kid,p_A, p_B)P(H_\kid)$.  Note that $P(H_\kid)$ would be,
+for example, $\opro_A^2$ if $H_\kid=2$, under the simplest independence assumptions.  So, if we just
+set all the $\opro$'s to 1, that would work out fine.  Hot Damn!  This is starting to make sense (maybe...).
+}
+$$
+\small
+\begin{aligned}
+H_\pa   & & H_\kid & & G_\pa   & & G_\kid  & &P(H_\kid|H_\pa)&  & P^*(G_\kid|G_\pa, H_\pa, H_\kid) &~~~& P(G_\kid| H_\kid)\\ \hline
+\\
+2       & & 2      & &  0      & &  0      & & \opro_A          &   &  1-p_A                   &   &  (1-p_A)^2 \\
+2       & & 2      & &  0      & &  1      & & \opro_A           &  &  p_A                     &   &  2p_A(1-p_A) \\
+2       & & 2      & &  0      & &  2      & & \opro_A &  &                     0             &   &  p_A^2 \\
+\\
+2       & & 2      & &  1      & &  0      & & \opro_A &  &  \frac{1}{2}(1-p_A)                   &   &  (1-p_A)^2 \\
+2       & & 2      & &  1      & &  1      & & \opro_A &  &  \frac{1}{2}                          &   &  2p_A(1-p_A) \\
+2       & & 2      & &  1      & &  2      & & \opro_A &  &  \frac{1}{2}p_A                  &   &  p_A^2 \\
+\\
+2       & & 2      & &  2      & &  0      & & \opro_A &  &  0                    &   &  (1-p_A)^2 \\
+2       & & 2      & &  2      & &  1      & & \opro_A &  &  1-p_A             &   &  2p_A(1-p_A) \\
+2       & & 2      & &  2      & &  2      & & \opro_A &  &  p_A            &   &  p_A^2 \\
+\\
+2       & & 4      & &  0      & &  0      & & \opro_B &  &  1-p_B         &   &  (1-p_A)(1-p_B) \\
+2       & & 4      & &  0      & &  1      & & \opro_B &  &  p_B           &   &  p_A(1-p_B) + p_B(1-p_A) \\
+2       & & 4      & &  0      & &  2      & & \opro_B &  &  0             &   &  p_Ap_B \\
+\\
+2       & & 4      & &  1      & &  0      & & \opro_B &  &  \frac{1}{2}(1-p_B)        &   &  (1-p_A)(1-p_B) \\
+2       & & 4      & &  1      & &  1      & & \opro_B &  &  \frac{1}{2}         &   &  p_A(1-p_B) + p_B(1-p_A) \\
+2       & & 4      & &  1      & &  2      & & \opro_B &  &  \frac{1}{2}p_B      &   &  p_Ap_B \\
+\\
+2       & & 4      & &  2      & &  0      & & \opro_B &  &  0                          &   &  (1-p_A)(1-p_B) \\
+2       & & 4      & &  2      & &  1      & & \opro_B &  &  1-p_B         &   &  p_A(1-p_B) + p_B(1-p_A) \\
+2       & & 4      & &  2      & &  2      & & \opro_B &  &  p_B           &   &  p_Ap_B \\
+\end{aligned}
+$$
+\end{table}
 
 
 
+
+\begin{table}
+\caption{Relevant genotype probabilities when the parent is $A_1B_1C_0$. Note that when there
+are only two species, then $\opro_A + \opro_B = 1$.  Of course, that sort of makes things weird
+if we set each of them to 1. Maybe we set them each to 1/2?
+And for compactness, I think we can define, $f_{AB}(01) = \frac{(1-p_A)p_B}{(1-p_A)p_B + p_A(1-p_B)}$
+to be the probability that the 0 allele is on the $A$ background (and the 1 allele is on the $B$
+background) in the parent, when it is heterozygous. Thus,
+$f_{AB}(10) = \frac{p_A(1-p_B)}{(1-p_A)p_B + p_A(1-p_B)}$ is the probability that the
+1 allele is on $A$ and the 0 allele is on $B$ within that parent. Hey! I should
+make dependence on $p_A$ and $p_B$ implicit to save some space in the headers.
+}
+$$
+\footnotesize
+\begin{aligned}
+H_\pa   & & H_\kid & & G_\pa   & & G_\kid  & &P(H_\kid|H_\pa)&  & P^*(G_\kid|G_\pa, H_\pa, H_\kid) &~~~& P(G_\kid| H_\kid)\\ \hline
+\\
+4       & & 2      & &  0      & &  0      & & \frac{1}{2}\opro_A         &   &  1-p_A                   &   &  (1-p_A)^2 \\
+4       & & 2      & &  0      & &  1      & & \frac{1}{2}\opro_A           &  &  p_A                       &   &  2p_A(1-p_A) \\
+4       & & 2      & &  0      & &  2      & & \frac{1}{2}\opro_A &  &       0             &   &  p_A^2 \\
+\\
+4       & & 2      & &  1      & &  0      & & \frac{1}{2}\opro_A  &  &  f_{AB}(01)(1-p_A)                   &   &  (1-p_A)^2 \\
+4       & & 2      & &  1      & &  1      & & \frac{1}{2}\opro_A  &  &  f_{AB}(01)p_A + f_{AB}(10)(1-p_A)               &   &  2p_A(1-p_A) \\
+4       & & 2      & &  1      & &  2      & & \frac{1}{2}\opro_A  &  &  f_{AB}(10)p_A                     &   &  p_A^2 \\
+\\
+4       & & 2      & &  2      & &  0      & & \frac{1}{2}\opro_A  &  &  0                    &   &  (1-p_A)^2 \\
+4       & & 2      & &  2      & &  1      & & \frac{1}{2}\opro_A  &  &  1-p_A             &   &  2p_A(1-p_A) \\
+4       & & 2      & &  2      & &  2      & & \frac{1}{2}\opro_A  &  &  p_A               &   &  p_A^2 \\
+\\
+4       & & 4      & &  0      & &  0      & & \frac{1}{2}(\opro_A + \opro_B) &  &  \frac{1}{2}(1-p_B) + \frac{1}{2}(1-p_A)         &   &  (1-p_A)(1-p_B) \\
+4       & & 4      & &  0      & &  1      & & \frac{1}{2}(\opro_A + \opro_B) &  &  \frac{1}{2}p_B + \frac{1}{2}p_A          &   &  p_A(1-p_B) + p_B(1-p_A) \\
+4       & & 4      & &  0      & &  2      & & \frac{1}{2}(\opro_A + \opro_B) &  &        0          &   &  p_Ap_B \\
+\\
+4       & & 4      & &  1      & &  0      & & \frac{1}{2}(\opro_A + \opro_B) &  &  \frac{1}{2}f_{AB}(01)(1-p_B) +  \frac{1}{2}f_{AB}(10)(1-p_A)      &   &  (1-p_A)(1-p_B) \\
+4       & & 4      & &  1      & &  1      & & \frac{1}{2}(\opro_A + \opro_B) &  &  \frac{1}{2}[f_{AB}(01)(1-pA+p_B) +f_{AB}(10)(1-p_B + p_A)]   &   &  p_A(1-p_B) + p_B(1-p_A) \\
+4       & & 4      & &  1      & &  2      & & \frac{1}{2}(\opro_A + \opro_B) &  &  \frac{1}{2}f_{AB}(10)p_B +  \frac{1}{2}f_{AB}(01)p_A      &   &  p_Ap_B \\
+\\
+4       & & 4      & &  2      & &  0      & & \opro_B &  &  \epsilon(1-p_A)(1-p_B)                          &   &  (1-p_A)(1-p_B) \\
+4       & & 4      & &  2      & &  1      & & \opro_B &  &  (1-\epsilon)(1-p_B) + \epsilon[p_A(1-p_B) + p_B(1-p_A)]         &   &  p_A(1-p_B) + p_B(1-p_A) \\
+4       & & 4      & &  2      & &  2      & & \opro_B &  &  (1-\epsilon)p_B + \epsilon p_Ap_B        &   &  p_Ap_B \\
+\end{aligned}
+$$
+\end{table}

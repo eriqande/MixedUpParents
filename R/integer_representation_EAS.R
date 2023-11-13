@@ -54,17 +54,23 @@ integer_representation_EAS <- function(E) {
   # now make the integer matrix.  We do so on the "completed" tibble
   # so that it will be easy to index into it over indivs and chroms.
   # At the same time we make integer replacements for the copy_num syntax.
-  # These could probably be used as bitmasks down the road, if needed.
+  # Note that I am doing these as the integer values of ternary numbers, (i.e.,
+  # we can describe the ancestry in base-3 and convert to an integer.)  In other
+  # words, because each individuals is diploid, the A B and C values can only be
+  # 0, 1, or 2, which is a ternary system.  A is the "0,1,2" digit (i.e., the 3^0 column), while
+  # B is the 3^1 column.  0, 3, or 6.  and C in that case is the 3^2 column: 0, 9, or 18.
+  # We could write function to return the integer of a ternary vector of 0, 1, and 2,
+  # but I will just hard-code it here.
   E2 <- E %>%
     mutate(
       anc_int = recode(
         copy_num,
-        A2B0C0 = 1L,
-        A0B2C0 = 2L,
-        A0B0C2 = 4L,
-        A1B1C0 = 3L,
-        A1B0C1 = 5L,
-        A0B1C1 = 6L
+        A2B0C0 = 2L,
+        A0B2C0 = 6L,
+        A0B0C2 = 18L,
+        A1B1C0 = 4L,
+        A1B0C1 = 10L,
+        A0B1C1 = 12L
       )
     ) %>%
     tidyr::complete(
