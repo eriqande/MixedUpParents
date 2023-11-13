@@ -461,9 +461,9 @@ H_\pa   & & H_\kid & & G_\pa   & & G_\kid  & &P(H_\kid|H_\pa)&  & P^*(G_\kid|G_\
 4       & & 4      & &  1      & &  1      & & \frac{1}{2}(\opro_A + \opro_B) &  &  \frac{1}{2}[f_{AB}(01)(1-pA+p_B) +f_{AB}(10)(1-p_B + p_A)]   &   &  p_A(1-p_B) + p_B(1-p_A) \\
 4       & & 4      & &  1      & &  2      & & \frac{1}{2}(\opro_A + \opro_B) &  &  \frac{1}{2}f_{AB}(10)p_B +  \frac{1}{2}f_{AB}(01)p_A      &   &  p_Ap_B \\
 \\
-4       & & 4      & &  2      & &  0      & & \opro_B &  &  \epsilon(1-p_A)(1-p_B)                          &   &  (1-p_A)(1-p_B) \\
-4       & & 4      & &  2      & &  1      & & \opro_B &  &  (1-\epsilon)(1-p_B) + \epsilon[p_A(1-p_B) + p_B(1-p_A)]         &   &  p_A(1-p_B) + p_B(1-p_A) \\
-4       & & 4      & &  2      & &  2      & & \opro_B &  &  (1-\epsilon)p_B + \epsilon p_Ap_B        &   &  p_Ap_B \\
+4       & & 4      & &  2      & &  0      & & \frac{1}{2}(\opro_A + \opro_B) &  &  0                          &   &  (1-p_A)(1-p_B) \\
+4       & & 4      & &  2      & &  1      & & \frac{1}{2}(\opro_A + \opro_B) &  &  \frac{1}{2}(1-p_A) + \frac{1}{2}(1-p_B)        &   &  p_A(1-p_B) + p_B(1-p_A) \\
+4       & & 4      & &  2      & &  2      & & \frac{1}{2}(\opro_A + \opro_B) &  &   \frac{1}{2}p_B + \frac{1}{2}p_A       &   &  p_Ap_B \\
 \end{aligned}
 $$
 \end{table}
