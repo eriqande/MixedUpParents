@@ -316,6 +316,23 @@ model: we assume that the parent genotype is always correctly identified, while 
 offspring genotype is incorrect with probability $\epsilon$, in which case the
 genotype of the offspring just gets drawn from the genotype probs given its ancestry.
 (This has the effect that the ratio becomes $\epsilon$).
+
+Before we launch into the tables of probs, let's talk about how we name the
+ancestries of the individuals more compactly.  We use "trits" instead of bits.
+Each digit can be 0, 1, or 2.  So we have:
+$$
+\begin{array}{ccc}
+\mathrm{Anc.String} & \mathrm{Ternary} & \mathrm{As~Decimal}\\
+A_2B_0C_0 & 200  & 2 \\
+A_1B_1C_0 & 110  & 4 \\ 
+A_1B_0C_1 & 101  & 10 \\
+A_0B_2C_0 & 020  & 6 \\
+A_0B_1C_1 & 011  & 12 \\
+A_0B_0C_2 & 002  & 18 \\
+\end{array}
+$$
+So, in the tables below, the $H$ is the As Decimal representation.
+
 \begin{table}
 \caption{Relevant genotype probabilities when the parent is $A_2B_0C_0$.
 $H$ is the ancestry pattern specified according to the values of the trits when
@@ -370,7 +387,7 @@ $$
 
 \begin{table}
 \caption{SAME TABLE BUT EXPRESSED DIFFERENTLY. Here the $P^*$ term assumes no genotyping
-error.  And we know that we multiple that by $(1-\epsilon)$ and add $\epsilon$ times the
+error.  And we know that we multiply that by $(1-\epsilon)$ and add $\epsilon$ times the
 kid's marginal genotype probability to get what we need. Dependence on $p_A$ and $p_B$
 is implicit.  Relevant genotype probabilities when the parent is $A_2B_0C_0$.
 $H$ is the ancestry pattern specified according to the values of the trits when
@@ -467,3 +484,39 @@ H_\pa   & & H_\kid & & G_\pa   & & G_\kid  & &P(H_\kid|H_\pa)&  & P^*(G_\kid|G_\
 \end{aligned}
 $$
 \end{table}
+
+
+OK, I think I have written enough of these out to start seeing a general pattern
+to implement it fairly easily.  First off, the only combinations of ancestry that
+will work are:
+$$
+\begin{array}{cc}
+H_\pa & H_\kid \\
+2 & 2 \\
+2 & 4 \\
+4 & 2 \\
+4 & 4 \\
+4 & 6 \\
+6 & 4 \\
+6 & 6 \\
+\end{array}
+$$
+
+So, if I were implementing this,  I would get
+for a single parent (or offspring) and all candidate offspring (or parents) a big
+long tibble (basically one individual compared to all others) that has columns:
+
+- par_id
+- kid_id
+- chrom
+- pos
+- Hp  (the ancestry of the candidate parent, decimal trits---2, 4, or 6)
+- Hk  (the ancestry of the candidate kid, decimal trits---2, 4, or 6)
+- Gp  (the genotype 0, 1, or 2, of the parent)
+- Gk  (the genotype 0, 1, or 2, of the kid)
+
+This can be done by intersecting the ancestries of all the individuals
+to one of them.  Left joining the 
+
+Then, to that huge long table we can join the allele frequencies at each of the
+markers 

@@ -45,7 +45,7 @@ integer_representation_EAS <- function(E) {
 
   # and a tibble that is a key for the chromosomes
   cKey <- tibble(
-    chromo = levels(E$chrom_f)
+    chrom = levels(E$chrom_f)
   ) %>%
     mutate(idx = 0:(n() - 1))
 
@@ -115,6 +115,8 @@ integer_representation_EAS <- function(E) {
     nIndiv = length(ilev),
     nChrom = length(levels(E$chrom_f)),
     nIntvlsVec = numIntvs,
+    iKey = iKey,
+    cKey = cKey,
     IntervalsMatrix = as.matrix(E2 %>% select(start, stop, anc_int, iIdx, cIdx)),
     IndexMatrix = as.matrix(E_index %>% select(first, last, iIdx, cIdx))
   )

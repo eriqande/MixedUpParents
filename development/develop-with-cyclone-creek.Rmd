@@ -119,14 +119,68 @@ source("../R/estimate_allele_freqs_EM.R")
 V <- read_rds("BigData/CycloneCreek/Processed/var_sites.rds")
 
 afem_list <- estimate_allele_freqs_EM(E, V)
-AlleFreqs <- afem_list$alle_freqs
+AlleFreqs0 <- afem_list$alle_freqs %>%
+  mutate(tot_obs = n0 + n1 + nu0 + nu1 - 1)
 GenoCounts <- afem_list$geno_counts
 ```
 
 
-The output of AlleFreqs is a little complex:
+The output of AlleFreqs0 is a little complex:
 ```{r}
-head(AlleFreqs)
+head(AlleFreqs0)
+```
+
+Now, it looks like some of the markers don't have any observations in some of the ancestries:
+```{r}
+AlleFreqs0 %>% 
+  ggplot(aes(x = tot_obs, fill = Ancestry)) +
+  geom_histogram() +
+  facet_wrap(~Ancestry) 
+```
+
+We expect that in the Yellowstone Cutthroat ancestry (C), but the 140 or so loci that
+have no observations in the WCT ancestry is kind of concerning.  That means that there
+are some markers that are NA in all the WCT ancestry, which is most of it.  What gives?
+Which markers are those?
+```{r}
+tot_obs0_markers <- AlleFreqs0 %>% 
+  filter(
+    Ancestry == "A",
+    tot_obs < 10
+  )
+```
+
+That is 137 markers.  What do we see at those markers in the data set?
+```{r}
+GenosOfWonkies <- V %>%
+  semi_join(
+    tot_obs0_markers %>% mutate(chrom = as.character(chrom_f)),
+    by = join_by(chrom, pos)
+  )
+
+# and to get the result we have, we would expect that these are predominantly missing
+# in the data set
+GenosOfWonkies %>%
+  group_by(var_spp, chrom, pos) %>%
+  summarise(fract_missing = mean(is.na(n)))
+
+```
+
+Hmmm...none of these have a high enough fraction of missing data to be believable, since the
+fraction of WCT ancestry amongst all the fish is clearly on the order of 70% to 80%. So
+this makes no sense.  
+
+Hold on! The problem is that they are not within the bounds of any diagnostic markers, so we
+can't determine ancestry for them.  Frick!  We are going to need to drop those.  In fact,
+we should drop any that don't have at least 100 total observations.  
+
+And, while we are at it, I am going to chuck the Yellowstones as well.
+Here we go.
+```{r}
+AlleFreqs <- AlleFreqs0 %>%
+  filter(Ancestry != "C") %>%
+  group_by(chrom_f, pos) %>%
+  filter(min(tot_obs) > 100)
 ```
 
 Let us see how much allele frequencies changed as a result of doing the EM:
@@ -250,7 +304,7 @@ Now, we want to take the observed genotype counts, complete them, and then
 calculate their relative freqs.
 ```{r}
 observed_geno_freqs <- GenoCounts %>%
-  filter(copy_num %in% c("A2B0C0", "A1B1C0", "A0B2C0")) %>%
+  filter(copy_num %in% c("A2B0C0", "A1B1C0")) %>%
   complete(
     nesting(chrom_f, pos), copy_num, geno,
     fill = list(n = 0L)
@@ -319,13 +373,13 @@ exp_and_obs_geno_freqs_2 %>%
 
 
 So, how many markers are we left with if we filter out those that have nothing
-as bad as $|z| > 3.09$ (which gives a cumulative prob of 1 out of 1000; so, it is like
+as bad as $|z| > 4.09$ (which gives a cumulative prob of 1 out of 1000; so, it is like
 a p-value of 0.001) within the copy_num at a site.
 
 ```{r}
 exp_and_obs_geno_freqs_3 <- exp_and_obs_geno_freqs_2 %>%
   group_by(chrom_f, pos, copy_num) %>%
-  filter(all(abs(z_score) < 3.09))
+  filter(all(abs(z_score) < 4.09))
 
 
 ggplot(exp_and_obs_geno_freqs_3, aes(x = exp_GP, y = obs_GP, colour = abs(z_score))) +
@@ -361,6 +415,7 @@ retained_freqs2 <- retained_freqs %>%
   mutate(maf_bin = cut_width(MAF, 0.05))
 
 retained_freqs2 %>%
+  ungroup() %>%
   count(Ancestry, maf_bin)
 ```
 
@@ -372,8 +427,11 @@ retained_freqs2 %>%
   summarise(numLoc_gt_12.5 = sum(as.integer(maf_bin) > 3))
 ```
 
-So, those are pretty decent numbers of markers that we will have to work with, I think.
+So, those are pretty decent numbers of markers that we will have to work with, I think. Not great, but it
+might prove enough...
 
+We are, however, going to retain as many loci as possible though, so we will use a smaller then
+12.5% MAF cutoff, below.
 
 From these.  Let's see how different the frequencies in A and B background are at all
 of these.  My guess is that they are probably fixed in the other background, for the most part.
@@ -393,25 +451,46 @@ I think we are going to be good do go with these to further develop the
 methodology.
 
 Let us now make a data set to plot the locations of these on the segments plot.
-Let's keep the SNPs with a MAF > 0.10.
+Let's keep the SNPs with a MAF > 0.01 in either of the backgrounds/
 
 ```{r}
-retained_freqs_maf_gt10 <- retained_freqs2 %>%
-  filter(MAF > 0.1) %>%
-  select(chrom_f, pos, Ancestry, MAF)
+retained_freqs_maf_gt01 <- retained_freqs2 %>%
+  group_by(chrom_f, pos) %>%
+  filter(any(MAF > 0.01)) %>%
+  select(chrom_f, pos, Ancestry, MAF, pnew1)
 
-# now we have to get the indivdiuals on there but only for those markers.
-V %>%
-  mutate(chrom_f = factor(chrom, levels = levels(retained_freqs_maf_gt10$chrom_f))) %>%
-  select(-var_spp, -chrom)
 ```
 
-I have not done that yet.
+Now, to continue this, we also need a tibble of the allele freqs, but not of the MAFs,
+we want the freq of the 1 allele, and we want it so we can join it to the
+intersected intervals later on.
+```{r}
+VarFreqs <- retained_freqs_maf_gt01 %>%
+  select(-MAF) %>%
+  pivot_wider(names_from = Ancestry, values_from = pnew1) %>%
+  ungroup()
+
+VarFreqs
+```
+
+
+# Now, get the genotypes of individuals at those markers
+
+```{r}
+Vuse <- V %>%
+  semi_join(VarFreqs %>% mutate(chrom = as.character(chrom_f)), by = join_by(chrom, pos)) %>%
+  select(-var_spp) %>%
+  rename(G = n)
+  
+head(Vuse)
+```
+
+
 
 
 ## Intersecting intervals, etc.
 
-First thing, let's make the integer representation of of E:
+First thing, let's make the integer representation of E:
 ```{r}
 ir_E <- integer_representation_EAS(E)
 ```
@@ -419,7 +498,7 @@ ir_E <- integer_representation_EAS(E)
 That is easy.  Now, we should be able to intersect any individuals that we want to.  Let's see what happens if we intersect
 individual 0 with all the rest:
 ```{r}
-spoing <- intersect_ancestry_intervals_rcpp(
+indiv0_intersected_to_everyone <- intersect_ancestry_intervals_rcpp(
   grp1 = 0,
   grp2 = 1:(ir_E$nIndiv - 1), 
   nC = ir_E$nChrom, 
@@ -455,5 +534,56 @@ system.time(for(i in 0:(ir_E$nIndiv - 1)) {
 
 OK.  That is super fast.  About 1.5 million pairs per second.  
 
-Now, what we need to do is add a way to quickly calculate the probability of the genotypes (and hence the likelihood ratio)
+Now, what we need to do is add a way to quickly calculate the probability of
+the genotypes (and hence the likelihood ratio)
 for each intersected pair.  
+
+I have decided we are not going to do those calculation in RCpp, because we can just do all of them
+vectorized for a single individual compared to everyone else.  So, we need to make a tibble out of the 
+matrix spoing and add chromosomes and indivs back on there.
+```{r}
+colnames(indiv0_intersected_to_everyone) <- c("Idx1", "Idx2", "Cidx", "anc1", "anc2", "start", "stop")
+indiv0_ite_tibble <- as_tibble(indiv0_intersected_to_everyone) %>%
+  left_join(ir_E$iKey, by = join_by(Idx1 == idx)) %>%
+  rename(ind1 = indiv) %>%
+  left_join(ir_E$iKey, by = join_by(Idx2 == idx)) %>%
+  rename(ind2 = indiv) %>%
+  left_join(ir_E$cKey, by = join_by(Cidx == idx)) %>%
+  rename(chrom = chromo)
+
+# now, join this to the variants and filter out things not in intersected
+# intervals
+
+OneToAll <- indiv0_ite_tibble %>%
+  left_join(Vuse %>% rename(ind1 = indiv, G1 = G), by = join_by(chrom, ind1)) %>%
+  filter(start < pos & pos < stop) %>%
+  left_join(Vuse %>% rename(ind2 = indiv, G2 = G), by = join_by(chrom, pos, ind2)) %>%
+  left_join(
+    VarFreqs %>% mutate(chrom = as.character(chrom_f)) %>% select(-chrom_f) %>% rename(pA = A, pB = B),
+    by = join_by(chrom, pos)
+  )
+
+
+```
+
+That is what we can start calculating likelihoods of different pairs with.  Let's have a look at this thing:
+```{r}
+head(OneToAll)
+```
+
+Because we are comparing `idx1` to everyone else, here, we will take `idx1` to be
+the Kid that we are comparing to lots of different candidate parents, so
+`idx2` will be the parents.  So, to make things easy, and to have them correspond
+to the notation in the paper, we will just make some new columns that are named
+according to the notation in the paper.
+```{r}
+OneToAll2 <- OneToAll %>%
+  select(pA, pB, everything()) %>%
+  mutate(
+    Hpar = Idx2,
+    Hkid = Idx1,
+    Gpar = G2,
+    Gkid = G1,
+    .before = pA
+  )
+```

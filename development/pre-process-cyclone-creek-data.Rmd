@@ -51,7 +51,27 @@ all_files_chr %>%
   count(geno)
 ```
 So, there are clearly some that have more than the two main alleles.
-We will simply no-call those.
+We will simply no-call those, as those genotype calls are a tiny subset of the others, see:
+```{r}
+all_files_chr %>%
+  count(geno) %>%
+  mutate(
+    geno_type = case_when(
+      geno %in% c("0", "1", "2") ~ "is012",
+      is.na(geno) ~ "isNA",
+      str_detect(geno, "/") ~ "hasSlash",
+      TRUE ~ NA
+    )
+  ) %>%
+  group_by(geno_type) %>% 
+  summarise(tot_n = sum(n)) %>%
+  mutate(
+    fract = tot_n / sum(tot_n)
+  )
+```
+
+That is a crap-ton of missing data. It would make little difference to chuck out the hasSlashes as NAs, too.
+
 ```{r}
 genos <- all_files_chr %>%
   mutate(
@@ -147,6 +167,10 @@ missing 30% of their loci, you expect that a fraction greater than 50% will stil
 be non-missing between them.  I am going to impose this for now and we can
 follow up on it more, later.
 
+
+But I am also rather worried that some markers might be totally missing in all
+backgrounds, though that would not make sense, I think.  
+
 How about for different loci?
 ```{r}
 genos_no_dup %>%
@@ -209,6 +233,17 @@ Those numbers should work out pretty well, especially for individuals with
 mostly WCT ancestry.  We might be able to loosen up on the missing data cutoffs
 eventually.  We do seem to not have a great many WCT_diag markers, but that
 might be OK.  
+
+
+Let's also look at the patterns of missingness in the different sets of markers, again:
+```{r}
+genos_filt %>%
+  group_by(marker_set, fish) %>%
+  summarise(fract_missing = mean(is.na(geno))) %>%
+  ggplot(aes(x = fract_missing, fill = marker_set)) +
+  geom_histogram() +
+  facet_wrap(~ marker_set, ncol = 3)
+```
 
 And let us compare that to what we were working with before:
 ```{r}
