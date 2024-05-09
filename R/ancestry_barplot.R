@@ -48,6 +48,10 @@ ancestry_barplot <- function(
   fill_scale = scale_fill_brewer(type = "div", palette = "RdYlBu")
 ) {
 
+  # we initialize some thigns here to 0 just in case any of these columns do not appear
+  # in the input E tibble
+  A2B0C0 <- A1B1C0 <- A1B0C1 <- A0B2C0 <- A1B1C0 <- A0B1C1 <- A0B0C2 <- A1B0C1 <- A0B1C1 <- 0
+
   lengths <- E %>%
     group_by(indiv) %>%
     summarise(tot_length_MB = sum(stop - start) / 1e6)

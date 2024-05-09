@@ -2,6 +2,7 @@
 % Please edit documentation in R/MixedUpParents-package.R
 \docType{package}
 \name{MixedUpParents}
+\alias{MixedUpParents-package}
 \alias{MixedUpParents}
 \title{My package documentation}
 \description{
