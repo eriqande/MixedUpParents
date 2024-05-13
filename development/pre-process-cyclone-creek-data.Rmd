@@ -141,6 +141,13 @@ genos_no_dup %>%
 Yay! The offending loci in multiple marker sets have been eliminated.
 
 
+How many markers in each group does this leave us with:
+```{r}
+genos_no_dup %>% 
+  count(marker_set, chrom, pos) %>%
+  count(marker_set)
+```
+
 ## total fraction of missing sites within individual across all marker sets
 
 ```{r}
@@ -219,6 +226,13 @@ fish.  But our locus filter did not toss too many loci.  We can revisit
 that, but I am not eager to start doing things with only 25% of the original
 markers in any particular pairwise comparison, which is what we would have
 if we accepted fish with 50% missing data.
+
+Let's look at the number of markers by marker set:
+```{r}
+genos_filt %>% 
+  count(marker_set, chrom, pos) %>%
+  count(marker_set)
+```
 
 So, what do the number of markers in each of the data sets look like?
 ```{r}

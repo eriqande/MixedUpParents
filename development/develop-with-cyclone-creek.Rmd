@@ -201,6 +201,8 @@ AlleFreqs <- AlleFreqs0 %>%
   filter(min(tot_obs) > 100)
 ```
 
+
+
 Let us see how much allele frequencies changed as a result of doing the EM:
 ```{r}
 ggplot(AlleFreqs, aes(x = p_init1, y = pnew1, colour = Ancestry)) +
@@ -321,7 +323,8 @@ OK! That gave us the expected genotype frequencies.
 Now, we want to take the observed genotype counts, complete them, and then
 calculate their relative freqs.
 ```{r}
-observed_geno_freqs <- GenoCounts %>%
+observed_geno_freqs <- GenoCounts %>% 
+  semi_join(AlleFreqs, by = join_by(chrom_f, pos)) %>%
   filter(copy_num %in% c("A2B0C0", "A1B1C0")) %>%
   complete(
     nesting(chrom_f, pos), copy_num, geno,
@@ -409,6 +412,7 @@ ggplot(exp_and_obs_geno_freqs_3, aes(x = exp_GP, y = obs_GP, colour = abs(z_scor
 Let's see how many loci this is, total
 ```{r}
 exp_and_obs_geno_freqs_3 %>%
+  ungroup() %>%
   count(chrom_f, pos)
 ```
 Still quite a few.  
@@ -479,6 +483,28 @@ retained_freqs_maf_gt01 <- retained_freqs2 %>%
 
 ```
 
+
+That removes something like 230 markers. Is that reasonable?  We can check that by looking at the
+orginal data.  We can find the ones that got
+removed like this:
+```{r}
+sites_below_MAF0.1_in_both <- retained_freqs2 %>% filter(all(MAF < 0.01)) %>%
+  count(chrom_f, pos) %>%
+  mutate(chrom = as.character(chrom_f))
+
+# then we could extract those from the original data set and calculate
+# frequencies of the 1 allele.
+V %>%
+  semi_join(sites_below_MAF0.1_in_both, by = join_by(chrom, pos)) %>%
+  filter(!is.na(n)) %>%
+  group_by(var_spp, chrom, pos) %>%
+  summarise(
+    alle1cnt = sum(n),
+    tot_num = 2 * n(),
+    freq1 = alle1cnt / tot_num
+  )
+```
+
 Now, to continue this, we also need a tibble of the allele freqs, but not of the MAFs,
 we want the freq of the 1 allele, and we want it so we can join it to the
 intersected intervals later on.
@@ -513,6 +539,38 @@ head(Vuse)
 And write those out:
 ```{r}
 write_rds(Vuse, file = file.path(OUTDIR, "variable_marker_genotypes.rds"), compress = "xz")
+```
+
+
+# Check that the frequencies look reasonable
+
+I am going to do a sanity check here, looking at WCT to see if I have allele 0 and 1 oriented
+correctly in the estimated freqs.  There is about 12% RBT ancestry, so I should be able to
+just look at the raw freqs of things and compare to the estiamted ones.
+```{r}
+VV <- V %>%
+  semi_join(VarFreqs %>% mutate(chrom = as.character(chrom_f)), by = join_by(chrom, pos)) %>%
+  filter(!is.na(n)) %>%
+  group_by(chrom, pos) %>%
+  summarise(
+    ac = sum(n),
+    tc = 2 * n(),
+    af = ac / tc
+  )
+
+VVC <- VV %>%
+  left_join(VarFreqs %>% mutate(chrom = as.character(chrom_f)), by = join_by(chrom, pos))
+
+ggplot(VVC, aes(x = A, y = af)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "blue")
+
+
+```
+
+```{r}
+ggplot(VVC, aes(x = B, y = af)) +
+  geom_point()
 ```
 
 
@@ -569,7 +627,7 @@ for each intersected pair.
 I have decided we are not going to do those calculation in RCpp, because we can just do all of them
 vectorized for a single individual compared to everyone else.  So, we need to make a tibble out of the 
 matrix spoing and add chromosomes and indivs back on there.
-```{r}
+```{r, eval=FALSE}
 colnames(indiv0_intersected_to_everyone) <- c("Idx1", "Idx2", "Cidx", "anc1", "anc2", "start", "stop")
 indiv0_ite_tibble <- as_tibble(indiv0_intersected_to_everyone) %>%
   left_join(ir_E$iKey, by = join_by(Idx1 == idx)) %>%
@@ -594,7 +652,7 @@ OneToAll <- indiv0_ite_tibble %>%
 ```
 
 That is what we can start calculating likelihoods of different pairs with.  Let's have a look at this thing:
-```{r}
+```{r, eval=FALSE}
 head(OneToAll)
 ```
 
@@ -612,7 +670,7 @@ in a candidate parent, we will record one element of the `seg_factor` column as
 which will then get properly multipled together over loci (really summed over the logs)
 within each kid x candidate-parent pair.  Note that we will put seg_factor = 1/2 at the
 first place where neither genotype (Gpar or Gkin) is NA.
-```{r}
+```{r, eval=FALSE}
 OneToAll2 <- OneToAll %>%
   select(pA, pB, everything()) %>%
   mutate(
@@ -622,7 +680,7 @@ OneToAll2 <- OneToAll %>%
     Gkid = G1,
     seg_factor = 1,  # by default, the segregation prob for each marker will 1 and one of them will become 1/2 for heterozygous parents.  
     .before = pA
-  ) %>%
+  )
   
 ```
 
