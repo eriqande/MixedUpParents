@@ -651,6 +651,25 @@ OneToAll <- indiv0_ite_tibble %>%
 
 ```
 
+OK, that is pretty cool, but I also think that we should be able to handle the diagnostic
+SNPs in the same framework, so we will want those in this too!
+```{r}
+VM <- M %>%
+  rename(G = n) %>%
+  bind_rows(Vuse) %>%
+  arrange(indiv, chrom,pos)
+
+# then get the interesections with individual 0 at all of those markers
+OneToAll_VM <- indiv0_ite_tibble %>%
+  left_join(VM %>% rename(ind1 = indiv, G1 = G), by = join_by(chrom, ind1)) %>%
+  filter(start < pos & pos < stop) %>%
+  left_join(VM %>% rename(ind2 = indiv, G2 = G), by = join_by(chrom, pos, ind2)) %>%
+  left_join(
+    VarFreqs %>% mutate(chrom = as.character(chrom_f)) %>% select(-chrom_f) %>% rename(pA = A, pB = B),
+    by = join_by(chrom, pos)
+  )
+```
+
 That is what we can start calculating likelihoods of different pairs with.  Let's have a look at this thing:
 ```{r, eval=FALSE}
 head(OneToAll)
