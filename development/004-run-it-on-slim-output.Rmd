@@ -1,0 +1,508 @@
+---
+title: "Running MUP on output from MixedUpSlimSims"
+output: html_document
+date: "2023-08-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+I simulated some data using `/Users/eriq/Documents/git-repos/MixedUpSlimSims/development/004-more-realistic-example-use.qmd`
+which looks like cyclone creek, and I copied the results to this repo at `development/data/from-MUSS/004-sim-results.rds`
+relative to this notebook.
+
+So, I can read that all in now:
+```{r}
+library(tidyverse)
+library(MixedUpParents)
+
+sim_results <- read_rds("data/from-MUSS/004-sim-results.rds")
+M <- sim_results$spp_diag
+EXTEND_PATH <- "data/from-MUSS/extended_anc_segs.rds"
+```
+
+First off, let's get the diagnostic markers done up for them.  This takes a while to
+run, and it can't be run in parallel via futures within RStudio so I ran it in the
+terminal and saved it.  And then this block does not get evaluated by default.
+```{r, eval=FALSE}
+
+
+
+# find the ancestral-n-segments
+D <- ancestral_n_segments(M, unique(M$chrom))
+
+#' find the extended segments:
+#' set the number of cores:
+future::plan(future::multicore, workers = 8)  # 8 cores on my laptop
+
+
+# extend those ancestral segments
+E <- extend_ancestral_segments_3(D, c("WCT", "RBT", "YCT"))
+# That takes a while because the Intervals package functions
+# are pretty darn slow.
+
+# write that out:
+
+write_rds(E, file = EXTEND_PATH, compress = "xz")
+```
+
+Now, we can read the segments back in.
+```{r}
+OUTDIR <- file.path("dev-results/004")
+dir.create(OUTDIR, recursive = TRUE, showWarnings = FALSE)
+E <- read_rds(EXTEND_PATH)
+
+```
+
+
+## Plotting the fraction of different ancestry copy numbers
+
+We have a function to make a barplot of the fraction of different ancestry
+copy numbers. Here it is:
+```{r, fig.width=10, fig.height=10, dev='svg'}
+barplot <- ancestry_barplot(E)
+barplot
+```
+
+Note that `A2B0C0` refers to a location in the genome where the individual
+carries two copies of WCT ancestry.  `A1B1C0` is where it has 1 copy of 
+WCT and 1 copy of RBT.  `A0B2C0` is two copies of RBT ancestry.  C is the YCT ancestry.  
+
+Just a note that this plot is easier to see as a PDF.  Here as SVG it is not 
+bad, but you can't zoom very far in it.
+
+```{r}
+ggsave(barplot, filename = file.path(OUTDIR, "ancestry_barplot.pdf"), width = 10, height = 12)
+```
+
+## Plotting every ancestry copy-number segement in every individual
+
+There is also a function that creates a ridiculous plot of all the segments
+in all the individuals on all the chromosomes. The first flavor of this has
+just a single bar for each individual.  (Later I might do one that has two
+"haplotypes" for each individual).
+
+This uses the same function as the above, with a different option:
+```{r, fig.width=10, fig.height=30, dev='svg'}
+segplot <- ancestry_barplot(E, plot_type = "segments")
+segplot
+```
+
+The chromosomes are all stacked upon one another in this plot.  So, each column is
+an individual, and every thin horizontal black line shows where a chromsome ends.
+The chromosomes actually end before and after those lines, but we have discarded 
+parts of the chromosomes that are outside of any species-diagnostic markers.
+
+Once again, that is much better to look at in PDF form.  
+
+## Add the species-diagnostic markers to that plot
+
+You can pass the data frame of species diagnostic markers to that plot
+to see where they all fall out with respect to the segments. This one
+is definitely best looked at as a PDF.  
+```{r}
+# read in the species diagnostic markers and
+# prepare the data frame so that the species designations
+# are A, B, and C.
+M <- sim_results$spp_diag %>%
+  mutate(
+    diag_spp = case_match(
+      diag_spp,
+      "WCT" ~ "A",
+      "RBT" ~ "B",
+      "YCT" ~ "C"
+    )
+  )
+
+# then we can pass that in like so:
+SDM_plot <- ancestry_barplot(E, plot_type = "segments", diagnostic_markers = M)
+
+# this one requires PDF to view reasonably.  So, do that:
+ggsave(SDM_plot, filename = file.path(OUTDIR, "stacked_segs.pdf"), width = 10, height = 30)
+
+rm(SDM_plot)
+```
+
+
+## Estimating allele frequencies
+
+This part should be pretty mellow.  For the scale of data we have,
+we ought to be able to just left join the variable genotypes by
+individual and chromosome, and then filter out things that are not
+included in ancestral-copy-number-inferred segments.
+
+```{r}
+V <- sim_results$var_snps
+
+afem_list <- estimate_allele_freqs_EM(E, V)
+AlleFreqs0 <- afem_list$alle_freqs %>%
+  mutate(tot_obs = n0 + n1 + nu0 + nu1 - 1)
+GenoCounts <- afem_list$geno_counts
+```
+
+
+The output of AlleFreqs0 is a little complex:
+```{r}
+head(AlleFreqs0)
+```
+
+Now, it looks like some of the markers don't have any observations in some of the ancestries:
+```{r}
+AlleFreqs0 %>% 
+  ggplot(aes(x = tot_obs, fill = Ancestry)) +
+  geom_histogram() +
+  facet_wrap(~Ancestry) 
+```
+
+We expect that in the Yellowstone Cutthroat ancestry (C),
+And we don't have any YCT ancestry in these simulation, so
+I am going to chuck the Yellowstones as well.
+Here we go.
+```{r}
+AlleFreqs <- AlleFreqs0 %>%
+  filter(Ancestry != "C") %>%
+  group_by(chrom_f, pos)
+```
+
+
+### Comparing to the allele frequencies of the founders
+
+Because these are simulated data, we know what the allele frequencies were
+in the founding generation, we so we can compare our estimates to those
+initial values, to make sure that our EM algorithm is working.
+
+Let's get those so we can compare these things.
+```{r}
+# get the true freqs in a suitable format
+init_freqs <- sim_results$alle_freqs %>%
+  pivot_longer(cols = c(A, B), names_to = "Ancestry", values_to = "p1") %>%
+  rename(chrom = chrom_f)
+
+# then get the estimated freqs in a similar format
+est_freqs <- AlleFreqs %>%
+  ungroup() %>%
+  mutate(chrom = as.character(chrom_f)) %>%
+  rename(p1 = pnew1) %>%
+  select(chrom, pos, Ancestry, p1)
+
+# then, put those together
+freq_comp <- init_freqs %>%
+  left_join(est_freqs, by = join_by(chrom, pos, Ancestry), suffix = c("_init", "_EM"))
+```
+
+Now, we can make a simple scatter plot of those.
+```{r}
+ggplot(freq_comp, aes(x = p1_init, y = p1_EM)) +
+  geom_point(colour = "blue") +
+  geom_abline(slope = 1, intercept = 0) +
+  facet_wrap(~ Ancestry, nrow = 1)
+```
+
+So, the estimates from the EM are clearly correct and good.  Yay!!
+
+### Let's check how our genotype proportion calculations look.
+
+One thing I would like to check is that the expected proportions
+of genotypes _within_ each of the different backgrounds, are what we would expect
+with random drawing of alleles onto each background. Basically, if we let
+$p_{A0}$ and $p_{A1}$ be the estimated freqs of alleles 0 and 1 on the $A$ background,
+and $p_{B0}$ and $p_{B1}$ be the same on the $B$ background, then for the three
+relevant different ancestries we have:
+$$
+\begin{aligned}
+\mathrm{Ancestry} &  ~~~~~~~~~~~\mathrm{Genotype} &~ \mathrm{Prob~of~genotype} \\
+A_2B_0C_0  &~~~~~~~~~~~~    0    &~   p_{A0}^2 \\
+  &~~~~~~~~~~~~    1    &~   2p_{A0}p_{A1} \\
+  &~~~~~~~~~~~~    2    &~   p_{A1}^2 \\
+\\
+A_0B_2C_0  &~~~~~~~~~~~~    0    &~   p_{B0}^2 \\
+  &~~~~~~~~~~~~    1    &~   2p_{B0}p_{B1} \\
+  &~~~~~~~~~~~~    2    &~   p_{B1}^2 \\
+\\
+A_1B_1C_0  &~~~~~~~~~~~~    0    &~   p_{A0}p_{B0} \\
+  &~~~~~~~~~~~~    1    &~   p_{A0}p_{B1} + p_{B0}p_{A1} \\
+  &~~~~~~~~~~~~    2    &~   p_{A1}p_{B1} \\
+\end{aligned}
+$$
+
+
+So, we can calculate the expected number of genotypes in each ancestry group
+for each locus.  
+
+Let's make a tibble that has all those frequencies for each allele, and then
+calculate these genotype frequencies for different ancestries.
+```{r}
+expected_geno_freqs <- AlleFreqs %>%
+  filter(Ancestry %in% c("A", "B")) %>%
+  select(chrom_f, pos, Ancestry, starts_with("pnew")) %>%
+  rename(p0 = pnew0, p1 = pnew1) %>%
+  pivot_wider(
+    names_from = Ancestry,
+    values_from = c(p0, p1),
+    names_sep = ""
+  ) %>%
+  expand_grid(
+    copy_num = c("A2B0C0", "A1B1C0", "A0B2C0"),
+    .
+  ) %>%
+  arrange(chrom_f, pos, copy_num) %>% # this has given us the copy nums and the alle freqs and now we compute the prob of 0, 1, or 2, genos
+  mutate(
+    Pg0 = case_when(
+      copy_num == "A2B0C0" ~ p0A ^ 2,
+      copy_num == "A0B2C0" ~ p0B ^ 2,
+      copy_num == "A1B1C0" ~ p0A * p0B
+    ),
+    Pg1 = case_when(
+      copy_num == "A2B0C0" ~ 2 * p0A * p1A,
+      copy_num == "A0B2C0" ~ 2 * p0B * p1B,
+      copy_num == "A1B1C0" ~ p0A * p1B + p1A * p0B
+    ),
+    Pg2 = case_when(
+      copy_num == "A2B0C0" ~ p1A ^ 2,
+      copy_num == "A0B2C0" ~ p1B ^ 2,
+      copy_num == "A1B1C0" ~ p1A * p1B
+    )
+  ) %>%
+  select(-(p0A:p1B)) %>%
+  pivot_longer(
+    cols = c(Pg0, Pg1, Pg2),
+    names_to = "geno", 
+    values_to = "exp_GP"
+  ) %>%
+  mutate(geno = as.integer(str_sub(geno, 3, 3)))
+```
+
+OK! That gave us the expected genotype frequencies.
+
+Now, we want to take the observed genotype counts, complete them, and then
+calculate their relative freqs.
+```{r}
+observed_geno_freqs <- GenoCounts %>% 
+  semi_join(AlleFreqs, by = join_by(chrom_f, pos)) %>%
+  filter(copy_num %in% c("A2B0C0", "A1B1C0")) %>%
+  complete(
+    nesting(chrom_f, pos), copy_num, geno,
+    fill = list(n = 0L)
+  ) %>%
+  group_by(chrom_f, pos, copy_num) %>%
+  mutate(
+    obs_GP = n / sum(n)
+  )
+  
+```
+
+Now we can compare those:
+```{r}
+exp_and_obs_geno_freqs <- observed_geno_freqs %>%
+  left_join(expected_geno_freqs, by = c("chrom_f", "pos", "copy_num", "geno"))
+```
+
+Plot them in a big facet_grid
+```{r}
+ggplot(exp_and_obs_geno_freqs, aes(x = exp_GP, y = obs_GP, colour = copy_num)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  facet_grid(copy_num ~ geno)
+```
+
+OK! That is what we hope for with these simulated data. We could colour them by
+a z-score given the expected binomial proportion and the associated variance/sd:
+
+```{r}
+exp_and_obs_geno_freqs_2 <- exp_and_obs_geno_freqs %>%
+  group_by(chrom_f, pos, copy_num) %>%
+  mutate(tot_n = sum(n)) %>%
+  ungroup() %>%
+  mutate(z_score = (exp_GP - obs_GP) * sqrt(tot_n / (exp_GP * (1 - exp_GP))))
+
+# first look at the distribution of the z_scores
+ggplot(exp_and_obs_geno_freqs_2, aes(x = z_score)) +
+  geom_histogram()
+```
+
+Great, that looks remarkably normal. And clearly the outliers in the real
+data are due to genotyping issues or some other things.  That's cool.
+
+So, we don't do any filtering on the simulated data.  We just proceed by saving these
+into the right format in a variable called VarFreqs:
+```{r}
+VarFreqs <- AlleFreqs %>%
+  ungroup() %>%
+  select(chrom_f, pos, Ancestry, pnew1) %>%
+  pivot_wider(names_from = Ancestry, values_from = pnew1) %>%
+  ungroup()
+```
+
+
+# Check the estimated admixture fractions against the true ones
+
+We are going to need to estimate the admixture fractions for each of the
+species within individuals. We do this from the extended segments and we
+now have a function for it.
+```{r}
+est_admix <- admix_fract_from_extended_segs(E)
+```
+
+And now we can compare those to the true, simulated values.
+```{r}
+# prep the true values
+trueQ <- sim_results$metaQ %>%
+  select(ped_id, anc_pop, admix_fract) %>%
+  mutate(indiv = as.character(ped_id)) %>%
+  mutate(Ancestry = case_match(anc_pop,  1 ~ "A", 2 ~ "B")) %>%
+  select(indiv, Ancestry, admix_fract)
+
+# join them
+admix_comp <- est_admix %>%
+  left_join(trueQ, by = join_by(indiv, Ancestry), suffix = c("_Estimated", "_True"))
+
+# then plot them
+ggplot(admix_comp, aes(x = admix_fract_True, admix_fract_Estimated)) +
+  geom_point(colour = "purple") +
+  geom_abline(slope = 1, intercept = 0) +
+  facet_wrap(~ Ancestry, nrow = 1)
+```
+There, we have it.  That is clearly correct.  Great!
+
+
+
+# Now, get the genotypes of individuals at those markers
+
+```{r}
+Vuse <- V
+
+  
+head(Vuse)
+```
+
+
+
+
+# Intersecting intervals, etc.
+
+First thing, let's make the integer representation of E:
+```{r}
+ir_E <- integer_representation_EAS(E)
+```
+
+That is easy.  Now, we should be able to intersect any individuals that we want to.  Let's see what happens if we intersect
+individual 0 with all the rest:
+```{r}
+indiv0_intersected_to_everyone <- intersect_ancestry_intervals_rcpp(
+  grp1 = 0,
+  grp2 = 1:(ir_E$nIndiv - 1), 
+  nC = ir_E$nChrom, 
+  V1 = ir_E$IntervalsMatrix, 
+  V2 = ir_E$IntervalsMatrix, 
+  X1 = ir_E$IndexMatrix, 
+  X2 = ir_E$IndexMatrix, 
+  nv1 = ir_E$nIntvlsVec, 
+  nv2 = ir_E$nIntvlsVec
+)
+```
+
+That is super fast.  What about if we intersect everyone against everyone else,
+but we don't actually keep track of the results (to save memory---we are just trying
+to see how fast this is).
+
+```{r}
+system.time(for(i in 0:(ir_E$nIndiv - 1)) {
+  biff <- intersect_ancestry_intervals_rcpp(
+    grp1 = i,
+    grp2 = setdiff(0:(ir_E$nIndiv - 1), i),
+    nC = ir_E$nChrom, 
+    V1 = ir_E$IntervalsMatrix, 
+    V2 = ir_E$IntervalsMatrix, 
+    X1 = ir_E$IndexMatrix, 
+    X2 = ir_E$IndexMatrix, 
+    nv1 = ir_E$nIntvlsVec, 
+    nv2 = ir_E$nIntvlsVec
+  )
+})
+```
+
+
+Now, what we need to do is add a way to quickly calculate the probability of
+the genotypes (and hence the likelihood ratio)
+for each intersected pair.  
+
+I have decided we are not going to do those calculation in RCpp, because we can just do all of them
+vectorized for a single individual compared to everyone else.  So, we need to make a tibble out of the 
+matrix spoing and add chromosomes and indivs back on there.
+```{r, eval=FALSE}
+colnames(indiv0_intersected_to_everyone) <- c("Idx1", "Idx2", "Cidx", "anc1", "anc2", "start", "stop")
+indiv0_ite_tibble <- as_tibble(indiv0_intersected_to_everyone) %>%
+  left_join(ir_E$iKey, by = join_by(Idx1 == idx)) %>%
+  rename(ind1 = indiv) %>%
+  left_join(ir_E$iKey, by = join_by(Idx2 == idx)) %>%
+  rename(ind2 = indiv) %>%
+  left_join(ir_E$cKey, by = join_by(Cidx == idx))
+
+# now, join this to the variants and filter out things not in intersected
+# intervals
+
+OneToAll <- indiv0_ite_tibble %>%
+  left_join(Vuse %>% rename(ind1 = indiv, G1 = n), by = join_by(chrom, ind1)) %>%
+  filter(start < pos & pos < stop) %>%
+  left_join(Vuse %>% rename(ind2 = indiv, G2 = n), by = join_by(chrom, pos, ind2)) %>%
+  left_join(
+    VarFreqs %>% mutate(chrom = as.character(chrom_f)) %>% select(-chrom_f) %>% rename(pA = A, pB = B),
+    by = join_by(chrom, pos)
+  )
+
+
+```
+
+OK, that is pretty cool, but I also think that we should be able to handle the diagnostic
+SNPs in the same framework, so we will want those in this too!
+```{r}
+VM <- M %>%
+  rename(G = n) %>%
+  bind_rows(Vuse) %>%
+  arrange(indiv, chrom,pos)
+
+# then get the interesections with individual 0 at all of those markers
+OneToAll_VM <- indiv0_ite_tibble %>%
+  left_join(VM %>% rename(ind1 = indiv, G1 = G), by = join_by(chrom, ind1)) %>%
+  filter(start < pos & pos < stop) %>%
+  left_join(VM %>% rename(ind2 = indiv, G2 = G), by = join_by(chrom, pos, ind2)) %>%
+  left_join(
+    VarFreqs %>% mutate(chrom = as.character(chrom_f)) %>% select(-chrom_f) %>% rename(pA = A, pB = B),
+    by = join_by(chrom, pos)
+  )
+```
+
+That is what we can start calculating likelihoods of different pairs with.  Let's have a look at this thing:
+```{r, eval=FALSE}
+head(OneToAll)
+```
+
+Because we are comparing `Idx1` to everyone else, here, we will take `Idx1` to be
+the Kid that we are comparing to lots of different candidate parents, so
+`idx2` will be the parents.  So, to make things easy, and to have them correspond
+to the notation in the paper, we will just make some new columns that are named
+according to the notation in the paper. And, at the same time, we will find the points
+where the parent has a new tract of heterozygous ancestry, as those will be
+the ones where the segregation probability is 1/2 for only one of the markers,
+and 1 everywhere else, because we assume that it is all physically linked. In fact,
+since we have all the markers here, for each of those contiguous heterozygous tracts
+in a candidate parent, we will record one element of the `seg_factor` column as
+1/2 and the rest as 1, so we can just include those, vectorized in the calculations
+which will then get properly multipled together over loci (really summed over the logs)
+within each kid x candidate-parent pair.  Note that we will put seg_factor = 1/2 at the
+first place where neither genotype (Gpar or Gkin) is NA.
+```{r, eval=FALSE}
+OneToAll_VM2 <- OneToAll_VM %>%
+  select(pA, pB, everything()) %>%
+  mutate(
+    Hpar = Idx2,
+    Hkid = Idx1,
+    Gpar = G2,
+    Gkid = G1,
+    seg_factor = 1,  # by default, the segregation prob for each marker will 1 and one of them will become 1/2 for heterozygous parents.  
+    .before = pA
+  )
+  
+```
+
