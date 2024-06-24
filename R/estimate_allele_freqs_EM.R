@@ -10,6 +10,7 @@
 #' by extend_ancestral_segments_3().
 #' @param V the variable-markers genotypes. Must have indiv IDs and
 #' chromosome names that are consistent with those in E.
+#' @export
 
 
 estimate_allele_freqs_EM <- function(E, V) {
