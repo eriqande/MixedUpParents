@@ -363,6 +363,7 @@ ggplot(admix_comp, aes(x = admix_fract_True, admix_fract_Estimated)) +
   geom_abline(slope = 1, intercept = 0) +
   facet_wrap(~ Ancestry, nrow = 1)
 ```
+
 There, we have it.  That is clearly correct.  Great!
 
 
@@ -427,10 +428,15 @@ Now, what we need to do is add a way to quickly calculate the probability of
 the genotypes (and hence the likelihood ratio)
 for each intersected pair.  
 
-I have decided we are not going to do those calculation in RCpp, because we can just do all of them
-vectorized for a single individual compared to everyone else.  So, we need to make a tibble out of the 
-matrix spoing and add chromosomes and indivs back on there.
-```{r, eval=FALSE}
+I had originally thought I would not do those calculations in RCpp, because we can just do all of them
+vectorized for a single individual compared to everyone else. However the operations will likely involve a lot
+of cycling over different possibilities, so it would not vectorize really well.  More likely,
+I will put together a tibble, some fraction of which becomes a matrix and gets operated on in that
+way.  
+
+So, we first make a tibble out of the 
+matrix `indiv0_intersected_to_everyone` and add chromosomes and indivs back on there.
+```{r}
 colnames(indiv0_intersected_to_everyone) <- c("Idx1", "Idx2", "Cidx", "anc1", "anc2", "start", "stop")
 indiv0_ite_tibble <- as_tibble(indiv0_intersected_to_everyone) %>%
   left_join(ir_E$iKey, by = join_by(Idx1 == idx)) %>%
@@ -443,9 +449,9 @@ indiv0_ite_tibble <- as_tibble(indiv0_intersected_to_everyone) %>%
 # intervals
 
 OneToAll <- indiv0_ite_tibble %>%
-  left_join(Vuse %>% rename(ind1 = indiv, G1 = n), by = join_by(chrom, ind1)) %>%
-  filter(start < pos & pos < stop) %>%
-  left_join(Vuse %>% rename(ind2 = indiv, G2 = n), by = join_by(chrom, pos, ind2)) %>%
+  left_join(Vuse %>% rename(ind1 = indiv, G1 = n), by = join_by(chrom, ind1), relationship = "many-to-many") %>%
+  filter(start < pos & pos < stop) %>%  # this is a simple way to do the interval intersections in the tidyverse
+  left_join(Vuse %>% rename(ind2 = indiv, G2 = n), by = join_by(chrom, pos, ind2), relationship = "many-to-many") %>%
   left_join(
     VarFreqs %>% mutate(chrom = as.character(chrom_f)) %>% select(-chrom_f) %>% rename(pA = A, pB = B),
     by = join_by(chrom, pos)
@@ -456,11 +462,47 @@ OneToAll <- indiv0_ite_tibble %>%
 
 OK, that is pretty cool, but I also think that we should be able to handle the diagnostic
 SNPs in the same framework, so we will want those in this too!
-```{r, eval=FALSE}
+
+
+In fact, and this is crucial, we can interpret the diagnostic markers simply as variable
+markers with allele frequencies in the different ancestry backgrounds that are very close
+to 0 or 1, but are not identically 0, because we will allow for genotyping error.  So, in
+other words, we have been treating the diagnostic markers as having frequencies of 0 or 1,
+but now we will just code those frequencies up as the probability of observing each of the
+alleles in the different backgrounds, and that includes that chance of genotyping error.
+
+Here, we make a tibble of diag freqs that looks like VarFreqs.  We can simply make this by summarizing
+the M tibble. 
+```{r}
+# make DiagFreqs
+gtyp_err_rate <- 0.005  # call it a one-in-two-hundred genotyping error rate
+DiagFreqs <- M %>%
+  distinct(diag_spp, chrom, pos) %>%
+  mutate(freq = 1 - gtyp_err_rate) %>%
+  pivot_wider(names_from = diag_spp, values_from = freq, values_fill = gtyp_err_rate) %>%
+  mutate(isDiag = 1L, .after = pos)
+
+DiagFreqs
+```
+
+Then we add that to VarFreqs:
+```{r}
+VarAndDiagFreqs <- VarFreqs %>%
+  mutate(chrom = as.character(chrom_f), .before = chrom_f) %>%
+  mutate(isDiag = 0L, .after = pos) %>%
+  select(-chrom_f) %>%
+bind_rows(
+  DiagFreqs
+) %>%
+  arrange(chrom, pos)
+```
+
+```{r}
 VM <- M %>%
   rename(G = n) %>%
-  bind_rows(Vuse) %>%
-  arrange(indiv, chrom,pos)
+  bind_rows(Vuse %>% rename(G = n)) %>%
+  arrange(indiv, chrom,pos) %>%
+  select(-diag_spp)
 
 # then get the interesections with individual 0 at all of those markers
 OneToAll_VM <- indiv0_ite_tibble %>%
@@ -468,15 +510,23 @@ OneToAll_VM <- indiv0_ite_tibble %>%
   filter(start < pos & pos < stop) %>%
   left_join(VM %>% rename(ind2 = indiv, G2 = G), by = join_by(chrom, pos, ind2)) %>%
   left_join(
-    VarFreqs %>% mutate(chrom = as.character(chrom_f)) %>% select(-chrom_f) %>% rename(pA = A, pB = B),
+    VarAndDiagFreqs,
     by = join_by(chrom, pos)
   )
 ```
 
 That is what we can start calculating likelihoods of different pairs with.  Let's have a look at this thing:
-```{r, eval=FALSE}
-head(OneToAll)
+```{r}
+head(OneToAll_VM)
 ```
+
+OK!  Now, we just need the admixture fractions of each individual in there somewhere
+and we will be good to go for calculating the likelihoods from a big matrix of a
+few of these columns, using RCpp.
+
+
+# OLDER STUFF
+
 
 Because we are comparing `Idx1` to everyone else, here, we will take `Idx1` to be
 the Kid that we are comparing to lots of different candidate parents, so
