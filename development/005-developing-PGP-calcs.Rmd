@@ -1,0 +1,79 @@
+---
+title: "Developing PGP calculations"
+output: html_document
+date: "2023-08-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+I simulated some data using `/Users/eriq/Documents/git-repos/MixedUpSlimSims/development/004-more-realistic-example-use.qmd`
+which looks like cyclone creek, and I copied the results to this repo at `development/data/from-MUSS/004-sim-results.rds`
+relative to this notebook.
+
+Then in 004 in this repo I created the extended segments and saved them so I
+have all this stuff to wor with quickly.
+
+So, I can read that all in now:
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(MixedUpParents)
+
+E <- read_rds("data/from-MUSS/extended_anc_segs.rds")
+
+sim_results <- read_rds("data/from-MUSS/004-sim-results.rds")
+V <- sim_results$var_snps
+
+M <- sim_results$spp_diag %>%
+  mutate(
+    diag_spp = case_match(
+      diag_spp,
+      "WCT" ~ "A",
+      "RBT" ~ "B",
+      "YCT" ~ "C"
+    )
+  )
+
+dir.create("dev-results/005", recursive = TRUE, showWarnings = FALSE)
+```
+
+
+See 004 for an exploration of the data and extended segments.  Here we just go immediately
+into preparing for pairwise genotype probs:
+```{r}
+L <- prepare_for_gpp(V, M, E)
+```
+
+
+Before going further, let's make sure we have the sampled individuals with their year and
+also their 0-based idx's
+```{r}
+# get the total simulation pedigree
+pedigree <- sim_results$metaQ %>%
+  select(ind_time, sex, ped_id:ped_p2) %>%
+  distinct() %>%
+  mutate(across(starts_with("ped"), .fns = as.character))
+
+# now pick out just the sampled ones that we have
+samples <- L$ir_E$iKey %>%
+  left_join(pedigree, by = join_by(indiv == ped_id))
+
+# and now make vectors of the kids and the parents and grandparents that
+# were sampled
+kids <- samples %>% filter(ind_time == 0) %>% pull(indiv)
+pars <- samples %>% filter(ind_time == 1) %>% pull(indiv)
+gpars <- samples %>% filter(ind_time == 2) %>% pull(indiv)
+```
+
+
+Now, we are in a position to start developing things.  Here define variables
+that can go into interactively running `pairwise_genotype_probs()` (we already
+have L)
+```{r}
+#TMP <- pairwise_genotype_probs(
+#  L = L,
+  kid = kids[1]
+  par = pars
+#)
+```

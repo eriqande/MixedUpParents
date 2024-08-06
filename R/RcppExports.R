@@ -31,6 +31,57 @@ intersect_ancestry_intervals_rcpp <- function(grp1, grp2, nC, V1, V2, X1, X2, nv
     .Call('_MixedUpParents_intersect_ancestry_intervals_rcpp', PACKAGE = 'MixedUpParents', grp1, grp2, nC, V1, V2, X1, X2, nv1, nv2)
 }
 
+#' Helper function to turn trits to a vector of one or two ancestries
+#'
+#' As a reminder:
+#' - 2 is two copies of the 1-ancestry
+#' - 4 is one copy of the 2-ancestry and one of the 1-ancestry
+#' - 6 is two copies of the 2-ancestry
+#' - 12 is one copy of the 2-ancestry and one copy of the 3-ancestry
+#' - 10 is one copy of 3 and one copy of 1
+#' - 18 is two copies of the 3-ancestry
+#' This is currently configured to deal with up to 3 ancestries (MaxAnc = 3)
+#' But this can easily be changed by setting MaxAnc = 4 or 5, etc.
+#' @export
+#' @examples
+#' trits <- c(2, 4, 6, 10, 12, 18)
+#' names(trits) <- trits
+#' lapply(trits, trit2vec)
+trit2vec <- function(x) {
+    .Call('_MixedUpParents_trit2vec', PACKAGE = 'MixedUpParents', x)
+}
+
+#' Low level function to compute the pairwise genotype probabilities
+#'
+#' This should never really be used directly by users.  Rather, use the
+#' `pairwise_genotype_probs()` function that calls this.
+#' @param IXG an integer matrix of the intersected intervals with columns
+#' - kIdx: 0-based index of the kid
+#' - pIdx: 0-based index of candidate parent
+#' - cIdx: 0-based index of chromosome
+#' - anck: ternary trit giving ancestry of kid at this segment
+#' - ancp: ternary trit giving ancestry of candidate parent at this segment
+#' - start: integer base pair of the start of the segment. Will probably be used just
+#'   to know when we are reaching a new segment.
+#' - stop: integer base pair of the stop of the segment (probably won't be used)
+#' - mIdx: 0-based index of the marker
+#' - pos:  base-pair position of the marker (likely will not be used)
+#' - gk:   count of 1 alleles in the kid genotype (0, 1, or 2, or -1 for missing data)
+#' - gp:   count of 1 alleles in the parent genotype (0, 1, or 2, or -1 for missing data)
+#' @param AF a numeric matrix with number of columns equal to the number of ancestries and
+#' ordered like A, B, C,... and number of rows equal to the number of variable and diagnostic
+#' markers combined.
+#' @param isD an integer vector of 0s and 1s with length equal to the number of
+#' variable and diagnostic markers combined. A 1 means the marker is a species-diagnostic
+#' marker and a 0 means otherwise.
+#' @param AD a numeric matrix with number of columns equal to the number of ancestries
+#' and number of rows equal to the total number of individuals that got put into the
+#' integer representation. Each row sums to one.  These are the admixture fractions.
+#' @export
+pgp_rcpp <- function(IXG, AF, isD, AD) {
+    .Call('_MixedUpParents_pgp_rcpp', PACKAGE = 'MixedUpParents', IXG, AF, isD, AD)
+}
+
 rcpp_hello <- function() {
     .Call('_MixedUpParents_rcpp_hello', PACKAGE = 'MixedUpParents')
 }
