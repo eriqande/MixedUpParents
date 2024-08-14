@@ -4,7 +4,7 @@
 \alias{trit2vec}
 \title{Helper function to turn trits to a vector of one or two ancestries}
 \usage{
-trit2vec(x)
+trit2vec(t)
 }
 \description{
 As a reminder:
@@ -18,6 +18,10 @@ As a reminder:
 This is currently configured to deal with up to 3 ancestries (MaxAnc = 3)
 But this can easily be changed by setting MaxAnc = 4 or 5, etc.
 }
+}
+\details{
+It is important to understand that this returns the ancestries in base-0.  So,
+ancestry 1 is called 0, ancestry 2 is called 1, etc.
 }
 \examples{
 trits <- c(2, 4, 6, 10, 12, 18)

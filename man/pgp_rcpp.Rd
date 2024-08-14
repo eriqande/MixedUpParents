@@ -4,7 +4,7 @@
 \alias{pgp_rcpp}
 \title{Low level function to compute the pairwise genotype probabilities}
 \usage{
-pgp_rcpp(IXG, AF, isD, AD)
+pgp_rcpp(IXG, AF, isD, AD, debug)
 }
 \arguments{
 \item{IXG}{an integer matrix of the intersected intervals with columns
@@ -34,6 +34,15 @@ marker and a 0 means otherwise.}
 \item{AD}{a numeric matrix with number of columns equal to the number of ancestries
 and number of rows equal to the total number of individuals that got put into the
 integer representation. Each row sums to one.  These are the admixture fractions.}
+
+\item{debug}{an IntegerVector, but we only use the first element.  debug(0) == 0 means no debug information.
+Otherwise the function returns a list with a lot of extra information that can be used
+to verify that the calculations are being done correctly. If debug(0) == 1, then information
+is returned at the rate of one row per segment, and no genotype information gets
+returned.  If debug(0) == 2, then information is returned at one row per marker, and it
+includes the genotype probabilities for each marker in the unrelated case.
+If debug(0) == 3 then information is returned with one row for each marker and each
+distinct value of the ancestry of the segregated haplotype.}
 }
 \description{
 This should never really be used directly by users.  Rather, use the

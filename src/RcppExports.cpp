@@ -30,19 +30,19 @@ BEGIN_RCPP
 END_RCPP
 }
 // trit2vec
-IntegerVector trit2vec(IntegerVector x);
-RcppExport SEXP _MixedUpParents_trit2vec(SEXP xSEXP) {
+IntegerVector trit2vec(int t);
+RcppExport SEXP _MixedUpParents_trit2vec(SEXP tSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< IntegerVector >::type x(xSEXP);
-    rcpp_result_gen = Rcpp::wrap(trit2vec(x));
+    Rcpp::traits::input_parameter< int >::type t(tSEXP);
+    rcpp_result_gen = Rcpp::wrap(trit2vec(t));
     return rcpp_result_gen;
 END_RCPP
 }
 // pgp_rcpp
-DataFrame pgp_rcpp(IntegerMatrix IXG, NumericMatrix AF, IntegerVector isD, NumericMatrix AD);
-RcppExport SEXP _MixedUpParents_pgp_rcpp(SEXP IXGSEXP, SEXP AFSEXP, SEXP isDSEXP, SEXP ADSEXP) {
+List pgp_rcpp(IntegerMatrix IXG, NumericMatrix AF, IntegerVector isD, NumericMatrix AD, IntegerVector debug);
+RcppExport SEXP _MixedUpParents_pgp_rcpp(SEXP IXGSEXP, SEXP AFSEXP, SEXP isDSEXP, SEXP ADSEXP, SEXP debugSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -50,7 +50,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< NumericMatrix >::type AF(AFSEXP);
     Rcpp::traits::input_parameter< IntegerVector >::type isD(isDSEXP);
     Rcpp::traits::input_parameter< NumericMatrix >::type AD(ADSEXP);
-    rcpp_result_gen = Rcpp::wrap(pgp_rcpp(IXG, AF, isD, AD));
+    Rcpp::traits::input_parameter< IntegerVector >::type debug(debugSEXP);
+    rcpp_result_gen = Rcpp::wrap(pgp_rcpp(IXG, AF, isD, AD, debug));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -68,7 +69,7 @@ END_RCPP
 static const R_CallMethodDef CallEntries[] = {
     {"_MixedUpParents_intersect_ancestry_intervals_rcpp", (DL_FUNC) &_MixedUpParents_intersect_ancestry_intervals_rcpp, 9},
     {"_MixedUpParents_trit2vec", (DL_FUNC) &_MixedUpParents_trit2vec, 1},
-    {"_MixedUpParents_pgp_rcpp", (DL_FUNC) &_MixedUpParents_pgp_rcpp, 4},
+    {"_MixedUpParents_pgp_rcpp", (DL_FUNC) &_MixedUpParents_pgp_rcpp, 5},
     {"_MixedUpParents_rcpp_hello", (DL_FUNC) &_MixedUpParents_rcpp_hello, 0},
     {NULL, NULL, 0}
 };

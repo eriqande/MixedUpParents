@@ -42,13 +42,16 @@ intersect_ancestry_intervals_rcpp <- function(grp1, grp2, nC, V1, V2, X1, X2, nv
 #' - 18 is two copies of the 3-ancestry
 #' This is currently configured to deal with up to 3 ancestries (MaxAnc = 3)
 #' But this can easily be changed by setting MaxAnc = 4 or 5, etc.
+#'
+#' It is important to understand that this returns the ancestries in base-0.  So,
+#' ancestry 1 is called 0, ancestry 2 is called 1, etc.
 #' @export
 #' @examples
 #' trits <- c(2, 4, 6, 10, 12, 18)
 #' names(trits) <- trits
 #' lapply(trits, trit2vec)
-trit2vec <- function(x) {
-    .Call('_MixedUpParents_trit2vec', PACKAGE = 'MixedUpParents', x)
+trit2vec <- function(t) {
+    .Call('_MixedUpParents_trit2vec', PACKAGE = 'MixedUpParents', t)
 }
 
 #' Low level function to compute the pairwise genotype probabilities
@@ -77,9 +80,17 @@ trit2vec <- function(x) {
 #' @param AD a numeric matrix with number of columns equal to the number of ancestries
 #' and number of rows equal to the total number of individuals that got put into the
 #' integer representation. Each row sums to one.  These are the admixture fractions.
+#' @param debug an IntegerVector, but we only use the first element.  debug(0) == 0 means no debug information.
+#' Otherwise the function returns a list with a lot of extra information that can be used
+#' to verify that the calculations are being done correctly. If debug(0) == 1, then information
+#' is returned at the rate of one row per segment, and no genotype information gets
+#' returned.  If debug(0) == 2, then information is returned at one row per marker, and it
+#' includes the genotype probabilities for each marker in the unrelated case.
+#' If debug(0) == 3 then information is returned with one row for each marker and each
+#' distinct value of the ancestry of the segregated haplotype.
 #' @export
-pgp_rcpp <- function(IXG, AF, isD, AD) {
-    .Call('_MixedUpParents_pgp_rcpp', PACKAGE = 'MixedUpParents', IXG, AF, isD, AD)
+pgp_rcpp <- function(IXG, AF, isD, AD, debug) {
+    .Call('_MixedUpParents_pgp_rcpp', PACKAGE = 'MixedUpParents', IXG, AF, isD, AD, debug)
 }
 
 rcpp_hello <- function() {
