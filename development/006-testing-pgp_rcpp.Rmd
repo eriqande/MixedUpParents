@@ -1,0 +1,47 @@
+---
+title: "Comprehensive Testing of pgp_rcpp()"
+output: html_notebook
+---
+
+Here I just create some data sets that are comprehensive, in terms of the number
+of combinations of different variables that are being fed into the thing, so I can
+inspect the results at the different debug levels of pgp_rcpp().
+
+## A set of test variables
+
+I will do three chromosomes, each with enough intersected segments to span
+the whole range of possibilities (with three ancestries) on each chromosome.
+Each segment will have diagnostic markers and then variable markers that cover the
+range of possible genotypes in the pair of individuals.  I will have a candidate kid and
+two candidate parents.
+
+So, it will look something like this:
+```{r}
+library(tidyverse)
+IXtib <- expand_grid(
+  kIdx = 10L,
+  pIdx = c(100L, 101L),
+  cIdx = c(0L, 1L),
+  anck = c(2, 4, 6, 10, 12, 18),
+  ancp = c(2, 4, 6, 10, 12, 18)
+) %>%
+  mutate(
+    start = seq(1e5, by = 1e5, length.out = n()),
+    stop = seq(2e5, by = 1e5, length.out = n()) - 1L
+  ) %>%
+  expand_grid(
+    isDiag = 0:1,
+    gk = -1:2,
+    gp = -1:2
+  ) %>%
+  mutate(
+    mIdx = 1:n(), 
+    .before = gk
+  ) %>%
+  group_by(start, stop) %>%
+  mutate(
+    pos = start + seq(100, by = 100, length.out = n()),
+    .after = mIdx
+  )
+  
+```

@@ -204,7 +204,7 @@ List pgp_rcpp(
       a = kHap(0);  // get the index of the ancestry
       fa = AF(midx, a);
       b = kHap(1);  // get the index of the ancestry
-      fb = AF(midx, a);
+      fb = AF(midx, b);
 
       if(g == 1) {
         geno_prob *= (fa * (fb - 1)) + (fb * (fa - 1));
@@ -227,7 +227,7 @@ List pgp_rcpp(
       ancvec_k.push_back(IXG(lo, anck));
       ADk_list.push_back(AD(IXG(m, kIdx),_));
       PAk_unList.push_back(PAk_un);
-      mIdx_list.push_back(mIdx);
+      mIdx_list.push_back(midx);
       fa_vec.push_back(fa);
       fb_vec.push_back(fb);
       Gk_list.push_back(g);

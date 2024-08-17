@@ -73,7 +73,7 @@ have L)
 ```{r}
 #TMP <- pairwise_genotype_probs(
 #  L = L,
-  kid = kids[1]
+  kid = "20412" # this one is heavily admixed    #kids[1]
   par = pars[1:4]
   debug = 2L
 #)

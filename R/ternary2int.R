@@ -16,7 +16,7 @@
 #'  c(1, 0, 1),
 #'  c(0, 1, 1)
 #' )
-#'
+#' ternary2int(TeEx)
 ternary2int <- function(Te) {
   if(!is.list(Te)) stop("Te must be a list of vectors")
   ret <- lapply(Te, function(x) {
