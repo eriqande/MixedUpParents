@@ -124,7 +124,7 @@ List pgp_rcpp(
   std::vector<double> PAk_unList, PGk_unList, fa_vec, fb_vec, geno_prob_vec;
   std::vector<int> Gk_list;  // for genotype of the kid
   std::vector<int> mIdx_list;
-
+  std::vector<int> isD_list;
 
   // initialize things at the first row
   lo=0;
@@ -150,6 +150,7 @@ List pgp_rcpp(
 
   // at this point, lo and hi are the inclusive lo and hi row indexes of the intersected segment
 
+  //Rcout << "hi and lo set " << std::endl;
 
   ////////////////////////////////////////////////////////////////
   // Now, in this block we need to cycle over the different possible ancestries
@@ -164,6 +165,8 @@ List pgp_rcpp(
   kd = kHap.length();
   pd = pHap.length();
 
+  //Rcout << "kHap is " << kHap << "   pHap is " << pHap << std::endl;
+  //Rcout << "kd is " << kd << "   pd is " << pd << std::endl;
 
   if(debug(0) == 1) {  // all this needs to get imbedded into a loop over markers.
     rLo.push_back(lo);
@@ -180,7 +183,7 @@ List pgp_rcpp(
   for(int i = 0; i< kd; i++) {
     PAk_un *= pow(AD(k, kHap(i)), (3 - kd));  // if kd = 1 then we square the frequency (like a homozygote) otherwise kd==2 and don't
   }
-  PAk_un *= (1.0 + kd==2); // If kd == 2 then we add the 2 (like we would for a heterozygote)
+  PAk_un *= (1.0 + (kd==2)); // If kd == 2 then we add the 2 (like we would for a heterozygote)
 
   // Then after we set the sack-o-segs contribution of the ancestry of the segments
   // we can cycle over the markers from lo to hi and accumulate the product of
@@ -194,30 +197,29 @@ List pgp_rcpp(
     double fa=-1.0, fb=-1.0; // to store the freq of the 1 allele
     double geno_prob = 0.0;
 
-
-    if(kd == 1) {  // simple case---just like a normal population
+    if(g == -1) {
+      geno_prob = 1.0;  // missing data
+    } else if(kd == 1) {  // simple case---just like a normal population
       a = kHap(0);  // get the index of the ancestry
       fa = AF(midx, a);
       geno_prob =  pow(fa, g) * pow(1 - fa, 2 - g) * (1 + (g == 1)); // standard Binomial with two draws
-      PGk_un *= geno_prob;
-    } else if(kd == 2) {
+    } else if(kd == 2) {  // kid has two ancestries within itself
       a = kHap(0);  // get the index of the ancestry
       fa = AF(midx, a);
       b = kHap(1);  // get the index of the ancestry
       fb = AF(midx, b);
 
       if(g == 1) {
-        geno_prob *= (fa * (fb - 1)) + (fb * (fa - 1));
+        geno_prob = (fa * (1 - fb)) + (fb * (1 - fa));
       } else if(g == 0) {
-        geno_prob *= (1 - fa) * (1 - fb);
+        geno_prob = (1 - fa) * (1 - fb);
       } else {
-        geno_prob *= fa * fb;
+        geno_prob = fa * fb;
       }
-      PGk_un*= geno_prob;
-
     } else {
-      Rcpp::stop("Neither 1 nor 2 copies of ancestry");
+      Rcpp::stop("Genotype not missing and kid had neither 1 nor 2 copies of ancestry");
     }
+    PGk_un*= geno_prob;  // accumulate the product
 
     if(debug(0) == 2) {
       rLo.push_back(lo);
@@ -228,6 +230,7 @@ List pgp_rcpp(
       ADk_list.push_back(AD(IXG(m, kIdx),_));
       PAk_unList.push_back(PAk_un);
       mIdx_list.push_back(midx);
+      isD_list.push_back(isD(midx));
       fa_vec.push_back(fa);
       fb_vec.push_back(fb);
       Gk_list.push_back(g);
@@ -240,7 +243,7 @@ List pgp_rcpp(
   for(IntegerVector::iterator segp = pHap.begin(); segp != pHap.end(); ++segp) {
 
     // now figure out what might have been inherited from the population into the kid.
-    p2k1 = p2k2 = -1;
+    p2k1 = p2k2 = -1;  // "population-to-kid 1 and population-to-kid 2
 
     // if the kid has two doses of a single ancestry, then we know that one of them
     // must have come from the population, regardless of what came from the parent.
@@ -250,13 +253,14 @@ List pgp_rcpp(
               // the parent.  Note that if p2k2 is not -1 then we need to account for
               // the two ancestries in the kid, one of which must be wrong (because the
               // other must have come from the parent, which matches neither of them).
-      if(kHap(0) != *segp) {
-        p2k1 = kHap(0);
-        if(kHap(1) != *segp)
-          p2k2 = kHap(2);
+      if(kHap(0) != *segp) {  // if kHap(0) was not segregated from the parent,
+        p2k1 = kHap(0);       // then k got kHap(0) from the population.
+        if(kHap(1) != *segp)  // If kHap(1) also did not come from the parent, then
+          p2k2 = kHap(1);     // we set p2k2 to kHap(1).  Thus p2k2 is no longer -1, which means that
+                              // we will need to account for it in the probabilities
       } else{
-        p2k1 = kHap(1);
-      }
+        p2k1 = kHap(1);       // if kHap(0) was segregated from the parent, then the
+      }                       // allele from the population must be kHap(1)
     }
 
     // Now, segp is the ancestry of the segment passed from the parent and
@@ -307,6 +311,7 @@ List pgp_rcpp(
       _["admix_fracts_k"] = ADk_list,
       _["prob_k_SOS"] = PAk_unList,
       _["mIdx"] = mIdx_list,
+      _["isDiag"] = isD_list,
       _["afreq_a"] = fa_vec,
       _["afreq_b"] = fb_vec,
       _["kid_geno"] = Gk_list,

@@ -19,29 +19,189 @@ So, it will look something like this:
 ```{r}
 library(tidyverse)
 IXtib <- expand_grid(
-  kIdx = 10L,
-  pIdx = c(100L, 101L),
+  kIdx = 0L,
+  pIdx = c(1L, 2L),
   cIdx = c(0L, 1L),
-  anck = c(2, 4, 6, 10, 12, 18),
-  ancp = c(2, 4, 6, 10, 12, 18)
+  anck = as.integer(c(2, 4, 6, 10, 12, 18)),
+  ancp = as.integer(c(2, 4, 6, 10, 12, 18))
 ) %>%
   mutate(
-    start = seq(1e5, by = 1e5, length.out = n()),
-    stop = seq(2e5, by = 1e5, length.out = n()) - 1L
+    start = seq(1e5L, by = 1e5L, length.out = n()),
+    stop = seq(2e5L, by = 1e5L, length.out = n()) - 1L
   ) %>%
   expand_grid(
     isDiag = 0:1,
     gk = -1:2,
     gp = -1:2
   ) %>%
+  group_by(pIdx) %>%
   mutate(
-    mIdx = 1:n(), 
+    mIdx = (1:n()) - 1L, 
     .before = gk
   ) %>%
   group_by(start, stop) %>%
   mutate(
-    pos = start + seq(100, by = 100, length.out = n()),
+    pos = start + seq(100L, by = 100L, length.out = n()),
     .after = mIdx
-  )
+  ) %>%
+  ungroup()
   
 ```
+
+After that, we need the admixture fractions for everyone.  There are 3 individuals (0, 1, and 2)
+currently, so we make that many.
+```{r}
+ADmat <- matrix(
+  c(
+    0.2, 0.7, 0.1,
+    0.4, 0.6, 0,
+    0.7, 0, 0.3
+  ),
+  byrow = TRUE,
+  ncol = 3
+)
+```
+
+
+Here is a simple function to make a matrix of allele freqs, one for each
+marker in the IXtib.  Every marker is going to get the same thing here.  
+```{r}
+#' @param freqs alle freqs for the different ancestries.  length of this is the
+#' number of ancestries.
+makeFreqs <- function(IXtib, freqs = c(0.5, 0.5, 0.5)) {
+  m <- max(IXtib$mIdx) + 1L
+  
+  matrix(freqs, byrow = TRUE, ncol = length(freqs), nrow = m)
+}
+
+
+```
+
+So, the we can run this like the following:
+
+## Debug == 1, check the subscripting of the markers within each segment and the haplotypes
+
+```{r}
+IXG <- IXtib %>% select(-isDiag) %>% as.matrix()
+AF <- makeFreqs(IXtib)
+isD <- IXtib %>% filter(kIdx == 0, pIdx == 1) %>% pull(isDiag)
+AD <- ADmat
+debug <- 1L  
+
+pgp_result <- pgp_rcpp(IXG, AF, isD, AD, as.integer(debug)) %>% 
+  as_tibble()
+
+pgp_result
+```
+
+If you then do `View(pgp_result)` and compare it to the following, you see that
+it checks out:
+```{r}
+IXtib %>%
+  group_by(kIdx, pIdx, cIdx, start, stop) %>% 
+  slice(1, n())
+```
+You can see that the indexes are lining up correctly with lo and hi.
+
+Also, inspecting pgp_result shows that the the vectors made from the trits are correct:
+```{r}
+pgp_result %>%
+  count(anc_k, anc_p, haplist_k, haplist_p)
+```
+
+So, everything is checking out on debug == 0.  Let's continue sussing things out.
+
+
+## Debug ==  1.  Checking up on the genotype probabilities given the kid is unrelated to the parent
+
+For this, we are going to whittle it down to just a single chromosome and a single parent, which
+will still have all the different ancestries and the genotypes.
+```{r}
+IXshort <- IXtib %>%
+  filter(pIdx == 1, cIdx == 0) %>%
+  mutate(mIdx = 0:(n()-1L))
+
+
+IXG <- IXshort %>% select(-isDiag) %>% as.matrix()
+isD <- IXtib %>% filter(kIdx == 0, pIdx == 1) %>% pull(isDiag)
+AD <- ADmat
+debug <- 2L  
+```
+
+
+### First sanity check: same allele freqs of 0.5 in all ancestries
+
+
+```{r}
+AF <- makeFreqs(IXshort)
+
+sc1 <- pgp_rcpp(IXG, AF, isD, AD, as.integer(debug)) %>% 
+  as_tibble()
+
+# See that the genotype probs are correct
+sc1 %>%
+  count(kid_geno, geno_prob)
+
+```
+
+Now, let's check the SOS probs.  Recall the admixture fractions look like this:
+```{r}
+ADmat[1,]
+```
+
+And we can see what the SOS probs look like for the kid:
+```{r}
+sc1 %>%
+  count(anc_k, prob_k_SOS) %>%
+  mutate(cumul = cumsum(prob_k_SOS))
+```
+That all checks out there.  Cool.
+
+### Sanity check 2.  Genotype frequencies spot check
+
+We set the genotype freqs to different values in those ancestries and
+check them.
+```{r}
+AF <- makeFreqs(IXshort, freqs = c(0.2, 0.3, 0.4))
+
+sc2 <- pgp_rcpp(IXG, AF, isD, AD, as.integer(debug)) %>% 
+  as_tibble()
+
+# See that the genotype probs are correct
+sc2_1 <- sc2 %>%
+  count(anc_k, kid_geno, geno_prob)
+```
+
+One simple check is that the genotype probabilities sum to one within each ancestry:
+```{r}
+sc2_1 %>%
+  filter(kid_geno != -1) %>%
+  group_by(anc_k) %>%
+  summarise(tot_prob = sum(geno_prob))
+```
+
+That is encouraging.  Recall the freqs are:
+```{r}
+AF[1,]
+```
+Now we can spot check things:
+```{r}
+sc2_1
+```
+
+```{r}
+# anc = 4 geno = 1 should be:
+0.8 * 0.3 + 0.2 * 0.7
+
+# anc = 4 geno = 2 should be:
+0.2 * 0.3
+
+# anc = 10 geno = 1 should be:
+0.8 * 0.4 + 0.2 * 0.6
+
+# anc = 10 geno = 2 should be:
+0.2 * 0.4
+```
+Yes!  This stuff all checks out. Cool.  It is now time to proceed to the probabilities
+under cases when different ancestries are being segregated from the parent.  
+
