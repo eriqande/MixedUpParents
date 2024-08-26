@@ -112,7 +112,7 @@ pgp_result %>%
 So, everything is checking out on debug == 0.  Let's continue sussing things out.
 
 
-## Debug ==  1.  Checking up on the genotype probabilities given the kid is unrelated to the parent
+## Debug ==  2.  Checking up on the genotype probabilities given the kid is unrelated to the parent
 
 For this, we are going to whittle it down to just a single chromosome and a single parent, which
 will still have all the different ancestries and the genotypes.
@@ -205,3 +205,7 @@ sc2_1
 Yes!  This stuff all checks out. Cool.  It is now time to proceed to the probabilities
 under cases when different ancestries are being segregated from the parent.  
 
+
+## Debug == 3. Probabilities conditional on the segregated haplotype from the parent
+
+Here we need to check both the SOS probabilities and the genotype probabilities.  
