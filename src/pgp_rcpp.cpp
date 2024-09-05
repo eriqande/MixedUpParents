@@ -5,17 +5,27 @@ using namespace Rcpp;
 // probabilities.
 
 
-// These are just indexes to use to extract values from columns in IGXmat
-#define kIdx  0
-#define pIdx  1
-#define cIdx  2
-#define anck  3
-#define ancp  4
-#define start 5
-#define mIdx  7
-#define pos 8
-#define gk  9
-#define gp  10
+// Enumeration for column indices
+enum IGXCol {
+  kIdx = 0,
+  pIdx = 1,
+  cIdx = 2,
+  anck = 3,
+  ancp = 4,
+  start = 5,
+  mIdx = 7,
+  pos = 8,
+  gk = 9,
+  gp = 10
+};
+
+
+
+// Constants (for now)
+const int MaxAnc = 3;   // max number of ancestries
+const double epsilon = 0.01;  // genotyping error rate
+
+
 
 
 //' Helper function to turn trits to a vector of one or two ancestries
@@ -53,6 +63,42 @@ using namespace Rcpp;
 }
 
 
+
+// Helper function to calculate SOS probs in the unrelated case
+double calculatePAkUnrelated(const IntegerVector& kHap, const NumericMatrix& AD, int k) {
+  double PAk_un = 1.0;
+  int kd = kHap.length();
+
+  for (int i = 0; i < kd; ++i) {
+    PAk_un *= pow(AD(k, kHap[i]), (3 - kd));
+  }
+  PAk_un *= (1.0 + (kd == 2));
+
+  return PAk_un;
+}
+
+
+
+
+// Helper function to calculate genotype probabilities for unrelated case
+double calculatePGkUnrelated(const IntegerVector& kHap, int kd, int g, int midx, const NumericMatrix& AF) {
+  double geno_prob = 1.0;
+  if (kd == 1) {
+    int a = kHap[0];
+    double fa = AF(midx, a);
+    geno_prob = pow(fa, g) * pow(1 - fa, 2 - g) * (1 + (g == 1));
+  } else if (kd == 2) {
+    int a = kHap[0];
+    int b = kHap[1];
+    double fa = AF(midx, a);
+    double fb = AF(midx, b);
+    geno_prob = (g == 1) ? (fa * (1 - fb) + fb * (1 - fa)) :
+      (g == 0) ? ((1 - fa) * (1 - fb)) : (fa * fb);
+  } else {
+    Rcpp::stop("Invalid kd value in genotype calculation.");
+  }
+  return geno_prob;
+}
 
 
 //' Low level function to compute the pairwise genotype probabilities
@@ -113,18 +159,18 @@ List pgp_rcpp(
   double PGk_un;  // For storing the prob of the genotypes given the ancestry (and kid unrelated)
   List ret;  // for returning the values
 
+  // For storing debug mode stuff and other things
+  std::vector<int> rLo, rHi, Gk_list, mIdx_list, isD_list;
+  std::vector<double> PAk_unList, PGk_unList, geno_prob_vec, fa_vec, fb_vec;
+
   ////// for storing stuff in debug mode //////
-  std::vector<int> rLo, rHi;  // for testing
   List Haplist_k, Haplist_p,  ADk_list;
   IntegerVector ancvec_k, ancvec_p, segvec_p;
 
   IntegerVector kHap, pHap;  // vectors for storing the ancestry of the haplotypes in kid and parent
                              // If it is length 1, there are two copies of one ancestry.
-  std::vector<int> p2k1_vec, p2k2_vec;
-  std::vector<double> PAk_unList, PGk_unList, fa_vec, fb_vec, geno_prob_vec;
-  std::vector<int> Gk_list;  // for genotype of the kid
-  std::vector<int> mIdx_list;
-  std::vector<int> isD_list;
+  std::vector<int> p2k1_vec, p2k2_vec, kid_hap_from_pop_vec;
+  std::vector<double> pseg_prob_vec, pop2kid_prob_vec;
 
   // initialize things at the first row
   lo=0;
@@ -152,13 +198,7 @@ List pgp_rcpp(
 
   //Rcout << "hi and lo set " << std::endl;
 
-  ////////////////////////////////////////////////////////////////
-  // Now, in this block we need to cycle over the different possible ancestries
-  // that might have been segregated from the parent.  For each one, we record the
-  // segregation probs given the sack-o-segs model, and then for each marker in this
-  // segment (i.e., cycling from lo to hi, once for each different segregation possibility)
-  // we add in the log-prob of the different genotypes found, given that segregation
-  // pattern and genotyping error.
+  // GET haplotypes of ancestries from the trit
   kHap = trit2vec(IXG(lo, anck));
   pHap = trit2vec(IXG(lo, ancp));
 
@@ -177,6 +217,7 @@ List pgp_rcpp(
     ancvec_p.push_back(IXG(lo, ancp));
   }
 
+  ///////////////////  Dealing with the Unrelated Case probabilities here //////////
   // Here, first we can calculate the probability of the kid having
   // the ancestries in kHap from the sack-o-segs model (with no parentage)
   PAk_un = 1.0;
@@ -187,18 +228,21 @@ List pgp_rcpp(
 
   // Then after we set the sack-o-segs contribution of the ancestry of the segments
   // we can cycle over the markers from lo to hi and accumulate the product of
-  // the genotype probabilty of each, conditional on the kid's ancestry. (Still in the
+  // the genotype probability of each, conditional on the kid's ancestry. (Still in the
   // Unrelated case).
   PGk_un = 1.0;  // to accumulate the product over loci
   for(int m = lo; m <= hi; m++) {
     int a, b;  // for storing ancestries (to make notation easier)
     int g = IXG(m, gk); // for storing the genotype (to make notation easier)
+    int gpar = IXG(m, gp); // for storing the genotype of the parent (to make notation easier)
     int midx = IXG(m, mIdx); // for storing the marker index
     double fa=-1.0, fb=-1.0; // to store the freq of the 1 allele
     double geno_prob = 0.0;
 
-    if(g == -1) {
-      geno_prob = 1.0;  // missing data
+    if(g == -1 || gpar == -1) {
+      geno_prob = 1.0;  // missing data.  If the parent is missing data, we leave it is as 1.0 too,
+                        // because we won't use that locus in the calculation of the offspring prob
+                        // conditional on parent-offspring.
     } else if(kd == 1) {  // simple case---just like a normal population
       a = kHap(0);  // get the index of the ancestry
       fa = AF(midx, a);
@@ -238,12 +282,26 @@ List pgp_rcpp(
       PGk_unList.push_back(PGk_un);
     }
   } // close loop over markers
+  /////////////////// Done with the Unrelated Case Probability calcs ///////////
 
+
+  ////////////////////////////////////////////////////////////////
+  // Now, in this block we need to cycle over the different possible ancestries
+  // that might have been segregated from the parent.  For each one, we record the
+  // segregation probs given the sack-o-segs model, and then for each marker in this
+  // segment (i.e., cycling from lo to hi, once for each different segregation possibility)
+  // we add in the log-prob of the different genotypes found, given that segregation
+  // pattern and genotyping error.
   // cycling over the ancestry of the haplotype segregated from the parent
   for(IntegerVector::iterator segp = pHap.begin(); segp != pHap.end(); ++segp) {
+    double pseg_prob = 1.0 / pd;  // the prob that a haplotype of the given ancestry was segregated from the parent.
+                                // If pd == 1 then it is 1, and if pd = 2 (parent has two ancestries at this
+                                // intersected segment) it is 0.5.
+    double pop2kid_prob;  // for holding the probability of the kid receiving from the population
+                          // the seg not inherited from the parent
 
     // now figure out what might have been inherited from the population into the kid.
-    p2k1 = p2k2 = -1;  // "population-to-kid 1 and population-to-kid 2
+    p2k1 = p2k2 = -1;  // "population-to-kid 1 and population-to-kid 2." Initialize to unset.
 
     // if the kid has two doses of a single ancestry, then we know that one of them
     // must have come from the population, regardless of what came from the parent.
@@ -266,23 +324,118 @@ List pgp_rcpp(
     // Now, segp is the ancestry of the segment passed from the parent and
     // p2k1 is what came from the population.  If p2k2 is not -1, then with prob
     // 1/2 the ancestry from the population is p2k1 and with prob 1/2 it is p2k2
-    // and we will have to sum over those cases.
+    // and we will have to sum over those cases.  (I think weighting by 1/2 is
+    // reasonable here, we take the average...it is sort of like having a prior
+    // of 1/2 that either of the two segments in the kid were mistakenly called).
 
-    // Now we can take the product over all the markers on this segment of the
-    // probability of the kids genotype given
+    // This is somewhat ugly.  If p2k2 is not -1, then we cycle over two possible
+    // values of which ancestry came from the population, with the other having
+    // come from the parent.
+    for(int i=0;i<1+(p2k2 != -1);i++) {
+      int kid_hap_from_parent = *segp;
+      int kid_hap_from_pop;
+      if(i==0) {
+        kid_hap_from_pop = p2k1;
+      } else {
+        kid_hap_from_pop = p2k2;
+      }
 
-    // debug stuff
-    if(debug(0) == 3) {  // all this needs to get imbedded into a loop over markers.
-      Haplist_k.push_back(kHap);
-      Haplist_p.push_back(pHap);
-      rLo.push_back(lo);
-      rHi.push_back(hi);
-      ancvec_k.push_back(IXG(lo, anck));
-      ancvec_p.push_back(IXG(lo, ancp));
-      segvec_p.push_back(*segp);
-      p2k1_vec.push_back(p2k1);
-      p2k2_vec.push_back(p2k2);
-    }
+      pop2kid_prob = AD(k, kid_hap_from_pop) / (1 + (p2k2 != -1));
+
+      // debug stuff
+      if(debug(0) == 3) {  // all this needs to get imbedded into a loop over markers.
+        Haplist_k.push_back(kHap);
+        Haplist_p.push_back(pHap);
+        rLo.push_back(lo);
+        rHi.push_back(hi);
+        ancvec_k.push_back(IXG(lo, anck));
+        ancvec_p.push_back(IXG(lo, ancp));
+        segvec_p.push_back(*segp);
+        p2k1_vec.push_back(p2k1);
+        p2k2_vec.push_back(p2k2);
+        pseg_prob_vec.push_back(pseg_prob);
+        kid_hap_from_pop_vec.push_back(kid_hap_from_pop);
+        pop2kid_prob_vec.push_back(pop2kid_prob);
+      }
+
+      // Now we can take the product over all the markers on this segment of the
+      // probability of the kids genotype given the parent's genotype and the
+      // segregation
+      for(int m = lo; m <= hi; m++) {
+        int a, b;  // for storing ancestries (to make notation easier)
+        int gkid = IXG(m, gk); // for storing the genotype (to make notation easier)
+        int gpar = IXG(m, gp);
+        int midx = IXG(m, mIdx); // for storing the marker index
+        int segged = *segp; // ancestry of the haplotype segregated from the parent
+        double fa=-1.0, fb=-1.0; // to store the freq of the 1 allele
+        double geno_prob = 0.0;
+
+        if(gkid == -1 || gpar == -1) {
+          geno_prob = 1.0;
+        } else {   // I am just going to do this with if/else cases.  Lame, but I think it
+                   // might be faster to implement at this point
+          if(gpar == 0) {
+            if(gkid == 0) {
+              if(p2k2 == -1) {
+                geno_prob = 1.0 - AF(midx, p2k1);
+              }
+              else {
+                geno_prob = 0.5 * ( (1.0 - AF(midx, p2k1)) + (1.0 - AF(midx, p2k2)));
+              }
+            }
+            else if(gkid == 1) {  // kid must have inherited a 1 from the population
+              if(p2k2 == -1) {
+                geno_prob = AF(midx, p2k1);
+              }
+              else {
+                geno_prob = 0.5 * ( (AF(midx, p2k1)) + (AF(midx, p2k2)));
+              }
+            }
+            else if(gkid == 2) {
+              if(p2k2 == -1) {
+                geno_prob = AF(midx, p2k1);
+              }
+              else {
+                geno_prob = 0.5 * ( (AF(midx, p2k1)) + (AF(midx, p2k2)));
+              }
+              geno_prob *= epsilon;  // a genotyping error must have occurred
+            }
+          } // closes if(gpar == 1)
+          else if(gpar == 2) {
+            if(gkid == 0) {
+              if(p2k2 == -1) {
+                geno_prob = 1.0 - AF(midx, p2k1);
+              }
+              else {
+                geno_prob = 0.5 * ( (1.0 - AF(midx, p2k1)) + (1.0 - AF(midx, p2k2)));
+              }
+              geno_prob *= epsilon;  // a genotyping error must have occurred
+            }
+            else if(gkid == 1) {  // kid must have inherited a 1 from the population
+              if(p2k2 == -1) {
+                geno_prob = 1.0 - AF(midx, p2k1);
+              }
+              else {
+                geno_prob = 0.5 * ( (1.0 - AF(midx, p2k1)) + (1.0 - AF(midx, p2k2)));
+              }
+            }
+            else if(gkid == 2) {
+              if(p2k2 == -1) {
+                geno_prob = AF(midx, p2k1);
+              } else {
+                geno_prob = 0.5 * ( (AF(midx, p2k1)) + (AF(midx, p2k2)));
+              }
+            }
+          }  // closes if(gpar == 2)
+          else if(gpar == 1) {
+            if(gpar == 0) {
+              ;
+            }
+          }
+        }
+      }
+
+    } // end loop over i
 
   }  // end the for loop over segp
 
@@ -329,7 +482,10 @@ List pgp_rcpp(
       _["haplist_p"] = Haplist_p,
       _["segvec_p"] = segvec_p,
       _["p2k1_vec"] = wrap(p2k1_vec),
-      _["p2k2_vec"] = wrap(p2k2_vec)
+      _["p2k2_vec"] = wrap(p2k2_vec),
+      _["pseg_prob"] = wrap(pseg_prob_vec),
+      _["kid_hap_from_pop"] = wrap(kid_hap_from_pop_vec),
+      _["pop2kid_prob"] = wrap(pop2kid_prob_vec)
     );
   }
 
