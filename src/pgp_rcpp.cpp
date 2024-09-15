@@ -7,16 +7,17 @@ using namespace Rcpp;
 
 // Enumeration for column indices
 enum IGXCol {
-  kIdx = 0,
-  pIdx = 1,
-  cIdx = 2,
-  anck = 3,
-  ancp = 4,
-  start = 5,
-  mIdx = 7,
-  pos = 8,
-  gk = 9,
-  gp = 10
+  __kIdx = 0,
+  __pIdx = 1,
+  __cIdx = 2,
+  __anck = 3,
+  __ancp = 4,
+  __start = 5,
+  __stop = 6,
+  __mIdx = 7,
+  __pos = 8,
+  __gk = 9,
+  __gp = 10
 };
 
 
@@ -24,6 +25,7 @@ enum IGXCol {
 // Constants (for now)
 const int MaxAnc = 3;   // max number of ancestries
 const double epsilon = 0.01;  // genotyping error rate
+const int WriteRcouts = 0;
 
 
 
@@ -80,16 +82,19 @@ double calculatePAkUnrelated(const IntegerVector& kHap, const NumericMatrix& AD,
 
 
 
-// Helper function to calculate genotype probabilities for unrelated case
-double calculatePGkUnrelated(const IntegerVector& kHap, int kd, int g, int midx, const NumericMatrix& AF) {
+// Helper function to calculate genotype probabilities for unrelated case.  We include
+// the parent genotype in here, because if it is missing, we don't want to include
+// the locus in the kid genotype calculation.
+double calculatePGkUnrelated(const IntegerVector& kHap, int kd, int g, int gp, int midx, const IntegerVector& isDiag, const NumericMatrix& AF) {
   double geno_prob = 1.0;
+  if(g == -1 || (gp == -1 && isDiag(midx) == 0)) return(1.0);  // missing data case.  Never include if kid is missing.  If parent genotype is missing and it is not a Diagnostic SNP, we also do not include it.
   if (kd == 1) {
-    int a = kHap[0];
+    int a = kHap(0);
     double fa = AF(midx, a);
     geno_prob = pow(fa, g) * pow(1 - fa, 2 - g) * (1 + (g == 1));
   } else if (kd == 2) {
-    int a = kHap[0];
-    int b = kHap[1];
+    int a = kHap(0);
+    int b = kHap(1);
     double fa = AF(midx, a);
     double fb = AF(midx, b);
     geno_prob = (g == 1) ? (fa * (1 - fb) + fb * (1 - fa)) :
@@ -99,6 +104,115 @@ double calculatePGkUnrelated(const IntegerVector& kHap, int kd, int g, int midx,
   }
   return geno_prob;
 }
+
+// Helper function to calculate the prob of the kid's genotype (gk)
+// given a parental relationship and
+// conditional on the ancestry of the segment segregated from the parent (As),
+// the ancestry of the segment gained from the population (Ap), and the allele
+// frequencies, FOR DIAGNOSTIC Markers.  This cycles over all the markers from
+// lo to hi and takes the product over all diagnostic markers in that interval.
+// Because we have inferred the ancestry of the segments using markers in the interval,
+// whether they are missing or not in the parent, we don't actually have to explicitly
+// account for the ancestry of the parent at each marker.  And we do not omit
+// markers that are not missing in the kid but are missing in the parent, because we
+// then it is commensurate to the PGkUnrelated case.
+double logPGkParentalDiag(
+    int As, // ancestry segregated from the parent
+    int Ap, // ancestry received from the population
+    int lo, // lo index of markers in the segment
+    int hi, // hi index of markers in the segment
+    const IntegerVector& isDiag, // vector of 1 of marker is a "diagnostic" marker, and 0 otherwise
+    const NumericMatrix& AF, // matrix of all allele frequencies
+    const IntegerMatrix& IXG // holds the genotypes
+) {
+  double geno_prob, ret = 0.0;
+
+  for(int m=lo; m<=hi; m++) {
+    int midx = IXG(m, __mIdx);
+    if(isDiag(midx) == 1) {  // only accumulate a product for diagnostic markers
+      int gk = IXG(m, __gk);
+      if(gk == -1) geno_prob = 1.0;
+      else
+        geno_prob = (gk == 0) ?  (1 - AF(midx, As)) * (1 - AF(midx, Ap)) :
+          (gk == 2) ? AF(midx, As) * AF(midx, Ap) :
+          (1 - AF(midx, As)) * AF(midx, Ap) + (1 - AF(midx, Ap)) * AF(midx, As);
+
+      if(WriteRcouts) Rcout << "PGk_par:"<< m << " " << midx << " " << isDiag(midx) << " " << AF(midx, As) << " " << (1 - AF(midx, As)) << " " << AF(midx, Ap) << " " << (1 - AF(midx, Ap)) << " "<< gk << " " << "NA" << " " << geno_prob << std::endl;
+      // Rcout << "Diag: " << midx << " " <<
+      ret += log(geno_prob);
+    }
+  }
+  return(ret);
+}
+
+
+//' Helper function to compute the sum of the log-probs of the offspring genotypes
+//' at the VARIABLE markers given the parental genotypes
+ double logPGkParentalVar(
+     int As, // ancestry segregated from the parent
+     int An, // ancestry of the segment *not* segregated by the parent
+     int Ap, // ancestry received from the population
+     int lo, // lo index of markers in the segment
+     int hi, // hi index of markers in the segment
+     const IntegerVector& isDiag, // vector of 1 of marker is a "diagnostic" marker, and 0 otherwise
+     const NumericMatrix& AF, // matrix of all allele frequencies
+     const IntegerMatrix& IXG // holds the genotypes
+ ) {
+   double geno_prob = 1.0;  // if isDiag == 1 this is what you get
+   double ret = 0.0;        // initialize to accumulate a sum of log probs
+   double corr = 0.002;     // a correction factor so that allele frequencies of 0 do not occur, so that the log does not blow up
+
+   for(int m=lo; m<=hi; m++) {
+     int midx = IXG(m, __mIdx);
+     if(isDiag(midx) == 0) {  // only accumulate a product/sum for the variable markers
+       int gk = IXG(m, __gk);
+       int gp = IXG(m, __gp);
+       double f0s = (1.0 - AF(midx, As)) == 0.0 ? corr : (1.0 - AF(midx, As)); // freq of the 0 allele on the segregated ancestry
+       double f1s = AF(midx, As) == 0.0 ? corr : AF(midx, As); // freq of the 1 allele on the segregated ancestry
+       double f0p = (1.0 - AF(midx, Ap)) == 0.0 ? corr : (1.0 - AF(midx, Ap)); // freq of the 0 allele on the ancestry from the population
+       double f1p = AF(midx, Ap) == 0.0 ? corr : AF(midx, Ap); // freq of the 1 allele on the ancestry from the population
+
+       if(gk == -1 || gp == -1) {
+         geno_prob = 1.0;  // omit if missing in either the kid or parent
+       }
+       else {
+
+         //Rcout << "f0s, f1s, f0p, f1p = " << f0s << " " << f1s << " " << f0p << " " << f1p << std::endl;
+         // we just break this down into cases based on gp then gk.
+         if(gp == 0) {
+           if(gk == 2) geno_prob = epsilon;  // Got a 0 from parent so there must have been a genotyping error
+           else if(gk == 1) geno_prob = f1p;  // Got the 0 from the parent and the 1 from the population
+           else if(gk == 0) geno_prob = f0p;
+         }
+         else if(gp == 2) {
+           if(gk == 0) geno_prob = epsilon;
+           else if(gk == 1) geno_prob = f0p;  // Got the 1 from the parent and the 0 from the population
+           else if(gk == 2) geno_prob = f1p;
+         }
+         else if(gp == 1) { // in these cases we must calculate the probability that the 1 allele was segregated from the parent, or not
+           double f0n = (1.0 - AF(midx, An)) == 0.0 ? corr : (1.0 - AF(midx, An)); // freq of the 0 allele on the non-segregated ancestry
+           double f1n = AF(midx, An) == 0.0 ? corr : AF(midx, An); // freq of the 1 allele on the non-segregated ancestry
+
+           double Pseg1 = (f1s * f0n) / ((f1s * f0n) + (f0s * f1n)); // the probability that the segregated haplotype from the parent carries a 1 allele
+           double Pseg0 = (f0s * f1n) / ((f1s * f0n) + (f0s * f1n)); // the probability that the segregated haplotype from the parent carries a 0 allele
+
+           //Rcout << "f0n, f1n, Pseg0, Pseq1 = " << f0n << " " << f1n << " " << Pseg0 << " " << Pseg1 << std::endl;
+
+           if(gk == 0) geno_prob = Pseg0 * f0p;  // the parent segregates a 0 and another 0 is received from the population
+           else if(gk == 2) geno_prob = Pseg1 * f1p; // the parent segregates a 1 and another 1 is received from the population
+           else if(gk == 1) geno_prob = (Pseg0 * f1p) + (Pseg1 * f0p);  // the parent segs a 0 and the pop a 1, or the parent segs a 1 and the pop a 0
+         }
+       }
+       if(WriteRcouts) Rcout << "PGk_par:"<< m << " " << midx << " " << isDiag(midx)  << " " << f1s << " " << f0s << " " << f1p << " " << f0p << " " << gk << " " << gp << " " << geno_prob << std::endl;
+       // Rcout << "geno_prob = " << geno_prob << std::endl;
+       ret += log(geno_prob);
+     }
+
+
+   }  // close loop over m
+   return(ret);
+ }
+
 
 
 //' Low level function to compute the pairwise genotype probabilities
@@ -148,27 +262,26 @@ List pgp_rcpp(
   int M = AF.nrow();  // number of markers
   int R = IXG.nrow(); // total number of rows of genotypes within the IXG matrix
   int lo,hi;  // lo and hi are for the first and last markers in a segment
-  int k,p,c,s;  // for storing current kIdx, pIdx, cIdx and start
   int kd, pd; // The number of distinct ancestries in the kid or parent
-  int p2k1, p2k2;  // holds the possible ancestries that came from the population (whatever
-                      // did not come from the parent).  If there is only one possible ancestry
-                      // then that is stored in p2k1, and p2k2 is set to -1. It could be two separate ancestries
-                      // if for example, the parent has two doses of 0 and the kid has one
-                      // dose each of 1 and 2.  In which case p2k1 = 1 and p2k2 = 2.
-  double PAk_un;  // For storing the prob of the ancestry given the kid is unrelated
   double PGk_un;  // For storing the prob of the genotypes given the ancestry (and kid unrelated)
   List ret;  // for returning the values
+  int NumParents = unique(IXG(_, __pIdx)).length();
+  int theKidx = IXG(0, __kIdx);
+  int Prow = 0;  // tells us which row of the return vectors we are on
+  double logPunrel = 0.0, logPparental = 0.0;  // for accumulating sums over segments within individuals
+  // preallocate to the return vectors
+  IntegerVector ret_kIdx(NumParents, theKidx), ret_pIdx(NumParents, -1);
+  NumericVector ret_logPunrel(NumParents, 0.0), ret_logPparental(NumParents, 0.0);
+
 
   // For storing debug mode stuff and other things
-  std::vector<int> rLo, rHi, Gk_list, mIdx_list, isD_list;
-  std::vector<double> PAk_unList, PGk_unList, geno_prob_vec, fa_vec, fb_vec;
+  std::vector<int> rLo, rHi, Gk_list, Gp_list, mIdx_list, isD_list, start_store, stop_store;
+  std::vector<double> PAk_unList, PGk_unList, PAk_parList, logProbDiag, logProbVar, geno_prob_vec, fa_vec, fb_vec;
 
   ////// for storing stuff in debug mode //////
-  List Haplist_k, Haplist_p,  ADk_list;
-  IntegerVector ancvec_k, ancvec_p, segvec_p;
+  List Haplist_k, Haplist_p,  ADk_list, popvec;
+  IntegerVector ancvec_k, ancvec_p, Asvec, Anvec, Apvec;
 
-  IntegerVector kHap, pHap;  // vectors for storing the ancestry of the haplotypes in kid and parent
-                             // If it is length 1, there are two copies of one ancestry.
   std::vector<int> p2k1_vec, p2k2_vec, kid_hap_from_pop_vec;
   std::vector<double> pseg_prob_vec, pop2kid_prob_vec;
 
@@ -177,271 +290,183 @@ List pgp_rcpp(
 
   // keep doing the following until lo == R
   while(lo < R) {
-  // If here, we have entered a new segment, so we record things about it and then
-  // determine the index of the last marker within it.  We find the end of the
-  // segment by figuring out where the kIdx, pIdx, cIdx, or start value changes,
-  // or where we are at the very final row (at R - 1)
+    // If here, we have entered a new segment, so we record things about it and then
+    // determine the index of the last marker within it.  We find the end of the
+    // segment by figuring out where the kIdx, pIdx, cIdx, or start value changes,
+    // or where we are at the very final row (at R - 1)
 
-  k = IXG(lo, kIdx);
-  p = IXG(lo, pIdx);
-  c = IXG(lo, cIdx);
-  s = IXG(lo, start);
-
-  for(hi=lo+1;hi<R;hi++) {
-    if(k != IXG(hi, kIdx) || p != IXG(hi, pIdx) || c != IXG(hi, cIdx) || s != IXG(hi, start)) {
-      break;
+    // for storing current kIdx (k), pIdx (p), cIdx (c) and start (s)
+    int k = IXG(lo, __kIdx), p = IXG(lo, __pIdx), c = IXG(lo, __cIdx), s = IXG(lo, __start);
+    for (hi = lo + 1; hi < R; hi++) {
+      if (k != IXG(hi, __kIdx) || p != IXG(hi, __pIdx) || c != IXG(hi, __cIdx) || s != IXG(hi, __start)) break;
     }
-  }
-  hi--;  // decrement it back by one to be the actual final row index
+    hi--; // decrement it back by one to be the actual final row index
 
-  // at this point, lo and hi are the inclusive lo and hi row indexes of the intersected segment
+    // at this point, lo and hi are the inclusive lo and hi row indexes of the intersected segment
 
-  //Rcout << "hi and lo set " << std::endl;
+    // vectors for storing the ancestry of the haplotypes in kid and parent
+    // If it is length 1, there are two copies of one ancestry.
+    IntegerVector kHap = trit2vec(IXG(lo, __anck));
+    IntegerVector pHap = trit2vec(IXG(lo, __ancp));
 
-  // GET haplotypes of ancestries from the trit
-  kHap = trit2vec(IXG(lo, anck));
-  pHap = trit2vec(IXG(lo, ancp));
+    kd = kHap.length();
+    pd = pHap.length();
 
-  kd = kHap.length();
-  pd = pHap.length();
 
-  //Rcout << "kHap is " << kHap << "   pHap is " << pHap << std::endl;
-  //Rcout << "kd is " << kd << "   pd is " << pd << std::endl;
+    // write kidx, parentidx, cidx, lo, and hi
+    if(WriteRcouts) Rcout << "KPC:"<< k << " " << p << " " << c << " " << IXG(lo, __anck) << " " << IXG(lo, __ancp) << " " << AD(k, 0) << " " << AD(k, 1) << " " << AD(k, 2) << " " << AD(p, 0) << " " << AD(p, 1) << " " << AD(p, 2) << " " << lo << " " << hi << std::endl;
 
-  if(debug(0) == 1) {  // all this needs to get imbedded into a loop over markers.
-    rLo.push_back(lo);
-    rHi.push_back(hi);
-    Haplist_k.push_back(kHap);
-    Haplist_p.push_back(pHap);
-    ancvec_k.push_back(IXG(lo, anck));
-    ancvec_p.push_back(IXG(lo, ancp));
-  }
-
-  ///////////////////  Dealing with the Unrelated Case probabilities here //////////
-  // Here, first we can calculate the probability of the kid having
-  // the ancestries in kHap from the sack-o-segs model (with no parentage)
-  PAk_un = 1.0;
-  for(int i = 0; i< kd; i++) {
-    PAk_un *= pow(AD(k, kHap(i)), (3 - kd));  // if kd = 1 then we square the frequency (like a homozygote) otherwise kd==2 and don't
-  }
-  PAk_un *= (1.0 + (kd==2)); // If kd == 2 then we add the 2 (like we would for a heterozygote)
-
-  // Then after we set the sack-o-segs contribution of the ancestry of the segments
-  // we can cycle over the markers from lo to hi and accumulate the product of
-  // the genotype probability of each, conditional on the kid's ancestry. (Still in the
-  // Unrelated case).
-  PGk_un = 1.0;  // to accumulate the product over loci
-  for(int m = lo; m <= hi; m++) {
-    int a, b;  // for storing ancestries (to make notation easier)
-    int g = IXG(m, gk); // for storing the genotype (to make notation easier)
-    int gpar = IXG(m, gp); // for storing the genotype of the parent (to make notation easier)
-    int midx = IXG(m, mIdx); // for storing the marker index
-    double fa=-1.0, fb=-1.0; // to store the freq of the 1 allele
-    double geno_prob = 0.0;
-
-    if(g == -1 || gpar == -1) {
-      geno_prob = 1.0;  // missing data.  If the parent is missing data, we leave it is as 1.0 too,
-                        // because we won't use that locus in the calculation of the offspring prob
-                        // conditional on parent-offspring.
-    } else if(kd == 1) {  // simple case---just like a normal population
-      a = kHap(0);  // get the index of the ancestry
-      fa = AF(midx, a);
-      geno_prob =  pow(fa, g) * pow(1 - fa, 2 - g) * (1 + (g == 1)); // standard Binomial with two draws
-    } else if(kd == 2) {  // kid has two ancestries within itself
-      a = kHap(0);  // get the index of the ancestry
-      fa = AF(midx, a);
-      b = kHap(1);  // get the index of the ancestry
-      fb = AF(midx, b);
-
-      if(g == 1) {
-        geno_prob = (fa * (1 - fb)) + (fb * (1 - fa));
-      } else if(g == 0) {
-        geno_prob = (1 - fa) * (1 - fb);
-      } else {
-        geno_prob = fa * fb;
-      }
-    } else {
-      Rcpp::stop("Genotype not missing and kid had neither 1 nor 2 copies of ancestry");
-    }
-    PGk_un*= geno_prob;  // accumulate the product
-
-    if(debug(0) == 2) {
+    if(debug(0) == 1) {  // Just checking to make sure lo and hi are correct
       rLo.push_back(lo);
       rHi.push_back(hi);
       Haplist_k.push_back(kHap);
       Haplist_p.push_back(pHap);
-      ancvec_k.push_back(IXG(lo, anck));
-      ADk_list.push_back(AD(IXG(m, kIdx),_));
-      PAk_unList.push_back(PAk_un);
-      mIdx_list.push_back(midx);
-      isD_list.push_back(isD(midx));
-      fa_vec.push_back(fa);
-      fb_vec.push_back(fb);
-      Gk_list.push_back(g);
-      geno_prob_vec.push_back(geno_prob);
-      PGk_unList.push_back(PGk_un);
-    }
-  } // close loop over markers
-  /////////////////// Done with the Unrelated Case Probability calcs ///////////
-
-
-  ////////////////////////////////////////////////////////////////
-  // Now, in this block we need to cycle over the different possible ancestries
-  // that might have been segregated from the parent.  For each one, we record the
-  // segregation probs given the sack-o-segs model, and then for each marker in this
-  // segment (i.e., cycling from lo to hi, once for each different segregation possibility)
-  // we add in the log-prob of the different genotypes found, given that segregation
-  // pattern and genotyping error.
-  // cycling over the ancestry of the haplotype segregated from the parent
-  for(IntegerVector::iterator segp = pHap.begin(); segp != pHap.end(); ++segp) {
-    double pseg_prob = 1.0 / pd;  // the prob that a haplotype of the given ancestry was segregated from the parent.
-                                // If pd == 1 then it is 1, and if pd = 2 (parent has two ancestries at this
-                                // intersected segment) it is 0.5.
-    double pop2kid_prob;  // for holding the probability of the kid receiving from the population
-                          // the seg not inherited from the parent
-
-    // now figure out what might have been inherited from the population into the kid.
-    p2k1 = p2k2 = -1;  // "population-to-kid 1 and population-to-kid 2." Initialize to unset.
-
-    // if the kid has two doses of a single ancestry, then we know that one of them
-    // must have come from the population, regardless of what came from the parent.
-    if(kd == 1) {
-      p2k1 = kHap(0);
-    } else {  // otherwise, we set p2k1 and p2k2 to whatever did not get inherited from
-              // the parent.  Note that if p2k2 is not -1 then we need to account for
-              // the two ancestries in the kid, one of which must be wrong (because the
-              // other must have come from the parent, which matches neither of them).
-      if(kHap(0) != *segp) {  // if kHap(0) was not segregated from the parent,
-        p2k1 = kHap(0);       // then k got kHap(0) from the population.
-        if(kHap(1) != *segp)  // If kHap(1) also did not come from the parent, then
-          p2k2 = kHap(1);     // we set p2k2 to kHap(1).  Thus p2k2 is no longer -1, which means that
-                              // we will need to account for it in the probabilities
-      } else{
-        p2k1 = kHap(1);       // if kHap(0) was segregated from the parent, then the
-      }                       // allele from the population must be kHap(1)
+      ancvec_k.push_back(IXG(lo, __anck));
+      ancvec_p.push_back(IXG(lo, __ancp));
     }
 
-    // Now, segp is the ancestry of the segment passed from the parent and
-    // p2k1 is what came from the population.  If p2k2 is not -1, then with prob
-    // 1/2 the ancestry from the population is p2k1 and with prob 1/2 it is p2k2
-    // and we will have to sum over those cases.  (I think weighting by 1/2 is
-    // reasonable here, we take the average...it is sort of like having a prior
-    // of 1/2 that either of the two segments in the kid were mistakenly called).
+    // Here, first we can calculate the probability of the kid having
+    // the ancestries in kHap from the sack-o-segs model (with no parentage)
+    double PAk_un = calculatePAkUnrelated(kHap, AD, k);
+    if(WriteRcouts) Rcout << "PAk_un: "<< PAk_un << std::endl;
 
-    // This is somewhat ugly.  If p2k2 is not -1, then we cycle over two possible
-    // values of which ancestry came from the population, with the other having
-    // come from the parent.
-    for(int i=0;i<1+(p2k2 != -1);i++) {
-      int kid_hap_from_parent = *segp;
-      int kid_hap_from_pop;
-      if(i==0) {
-        kid_hap_from_pop = p2k1;
-      } else {
-        kid_hap_from_pop = p2k2;
-      }
+    // Then after we set the sack-o-segs contribution of the ancestry of the segments
+    // we can cycle over the markers from lo to hi and accumulate the product of
+    // the genotype probability of each, conditional on the kid's ancestry. (Still in the
+    // Unrelated case).
+    PGk_un = 1.0;  // to accumulate the product over loci
+    double logPGk_un = 0.0; // to accumulate the product as a sum of logs
+    for(int m = lo; m <= hi; m++) {
+      int g = IXG(m, __gk);
+      int gpar = IXG(m, __gp);
+      int midx = IXG(m, __mIdx);
 
-      pop2kid_prob = AD(k, kid_hap_from_pop) / (1 + (p2k2 != -1));
+      double geno_prob = calculatePGkUnrelated(kHap, kd, g, gpar, midx, isD, AF);
+      PGk_un*= geno_prob;  // accumulate the product
+      logPGk_un += log(geno_prob);
 
-      // debug stuff
-      if(debug(0) == 3) {  // all this needs to get imbedded into a loop over markers.
-        Haplist_k.push_back(kHap);
-        Haplist_p.push_back(pHap);
+      if(WriteRcouts) Rcout << "PGk_un:"<< m << " " << midx << " " << isD(midx)  << " "<< g << " " << gpar << " " << geno_prob << std::endl;
+
+      if(debug(0) == 2) {
         rLo.push_back(lo);
         rHi.push_back(hi);
-        ancvec_k.push_back(IXG(lo, anck));
-        ancvec_p.push_back(IXG(lo, ancp));
-        segvec_p.push_back(*segp);
-        p2k1_vec.push_back(p2k1);
-        p2k2_vec.push_back(p2k2);
-        pseg_prob_vec.push_back(pseg_prob);
-        kid_hap_from_pop_vec.push_back(kid_hap_from_pop);
-        pop2kid_prob_vec.push_back(pop2kid_prob);
+        Haplist_k.push_back(kHap);
+        Haplist_p.push_back(pHap);
+        ancvec_k.push_back(IXG(lo, __anck));
+        ADk_list.push_back(AD(IXG(m, __kIdx),_));
+        PAk_unList.push_back(PAk_un);
+        mIdx_list.push_back(midx);
+        isD_list.push_back(isD(midx));
+        Gk_list.push_back(g);
+        Gp_list.push_back(gpar);
+        geno_prob_vec.push_back(geno_prob);
+        PGk_unList.push_back(PGk_un);
       }
+    } // close loop over markers
+    logPunrel += log(PAk_un) + logPGk_un;
 
-      // Now we can take the product over all the markers on this segment of the
-      // probability of the kids genotype given the parent's genotype and the
-      // segregation
-      for(int m = lo; m <= hi; m++) {
-        int a, b;  // for storing ancestries (to make notation easier)
-        int gkid = IXG(m, gk); // for storing the genotype (to make notation easier)
-        int gpar = IXG(m, gp);
-        int midx = IXG(m, mIdx); // for storing the marker index
-        int segged = *segp; // ancestry of the haplotype segregated from the parent
-        double fa=-1.0, fb=-1.0; // to store the freq of the 1 allele
-        double geno_prob = 0.0;
+    /////////////////// Done with the Unrelated Case Probability calcs ///////////
 
-        if(gkid == -1 || gpar == -1) {
-          geno_prob = 1.0;
-        } else {   // I am just going to do this with if/else cases.  Lame, but I think it
-                   // might be faster to implement at this point
-          if(gpar == 0) {
-            if(gkid == 0) {
-              if(p2k2 == -1) {
-                geno_prob = 1.0 - AF(midx, p2k1);
-              }
-              else {
-                geno_prob = 0.5 * ( (1.0 - AF(midx, p2k1)) + (1.0 - AF(midx, p2k2)));
-              }
-            }
-            else if(gkid == 1) {  // kid must have inherited a 1 from the population
-              if(p2k2 == -1) {
-                geno_prob = AF(midx, p2k1);
-              }
-              else {
-                geno_prob = 0.5 * ( (AF(midx, p2k1)) + (AF(midx, p2k2)));
-              }
-            }
-            else if(gkid == 2) {
-              if(p2k2 == -1) {
-                geno_prob = AF(midx, p2k1);
-              }
-              else {
-                geno_prob = 0.5 * ( (AF(midx, p2k1)) + (AF(midx, p2k2)));
-              }
-              geno_prob *= epsilon;  // a genotyping error must have occurred
-            }
-          } // closes if(gpar == 1)
-          else if(gpar == 2) {
-            if(gkid == 0) {
-              if(p2k2 == -1) {
-                geno_prob = 1.0 - AF(midx, p2k1);
-              }
-              else {
-                geno_prob = 0.5 * ( (1.0 - AF(midx, p2k1)) + (1.0 - AF(midx, p2k2)));
-              }
-              geno_prob *= epsilon;  // a genotyping error must have occurred
-            }
-            else if(gkid == 1) {  // kid must have inherited a 1 from the population
-              if(p2k2 == -1) {
-                geno_prob = 1.0 - AF(midx, p2k1);
-              }
-              else {
-                geno_prob = 0.5 * ( (1.0 - AF(midx, p2k1)) + (1.0 - AF(midx, p2k2)));
-              }
-            }
-            else if(gkid == 2) {
-              if(p2k2 == -1) {
-                geno_prob = AF(midx, p2k1);
-              } else {
-                geno_prob = 0.5 * ( (AF(midx, p2k1)) + (AF(midx, p2k2)));
-              }
-            }
-          }  // closes if(gpar == 2)
-          else if(gpar == 1) {
-            if(gpar == 0) {
-              ;
-            }
-          }
+
+    ////////////////////////////////////////////////////////////////
+    // Now, in this block we need to cycle over the different possible ancestries
+    // that might have been segregated from the parent.  For each one, we record the
+    // segregation probs given the sack-o-segs model, and then for each marker in this
+    // segment (i.e., cycling from lo to hi, once for each different segregation possibility)
+    // we add in the log-prob of the different genotypes found, given that segregation
+    // pattern and genotyping error.
+    // cycling over the ancestry of the haplotype segregated from the parent
+    double sumOverSeggedHaps = 0.0;  // initialize to collect a sum of (unlogged) probabilities.
+    for(int segpidx = 0; segpidx < pd; segpidx++)  {
+      double pseg_prob = 1.0 / pd; // prob of segregating the ancestry (it is 1/2 if there are two ancestries)
+      int As = pHap(segpidx); // the ancestry of what got segregated from the parent.
+      int An = (pd == 1) ? As : ((segpidx == 0) ? pHap(1) : pHap(0)) ; // Ancestry of segment that was not segregated from the parent (necessary when parent's genotype is 1)
+
+      IntegerVector fromPop;  // vector to hold the possible haplotypes from the population in the kid
+
+      // if the kid has two doses of a single ancestry, then we know that one of them
+      // must have come from the population, regardless of what came from the parent.
+      if(kd == 1) {
+        fromPop.push_back(kHap(0));
+      } else { // otherwise fill fromPop with the ancestries in kHap that are not the same as As
+        for(int h=0; h<kHap.length(); h++) {
+          if(kHap(h) != As) fromPop.push_back(kHap(h));
         }
       }
 
-    } // end loop over i
+      // Rcout << "fromPop.length() = " << fromPop.length() << std::endl;
 
-  }  // end the for loop over segp
+      // now, cycle over the possible ancestries received from the population
+      for(int popsegidx = 0; popsegidx < fromPop.length(); popsegidx++) {
+        int Ap = fromPop(popsegidx);
+        double pop_seg_factor = 1.0 / fromPop.length();  // if there are two possible ancestries gained from the population we take the average of them by weighting each by 1/2
 
-  //////////////////////////////////////////////////////////////
-  // move onto the next segment
-  lo = hi + 1;
+
+        // The prob of the kid having gotten those ancestries under the parental hypothesis is the prob of segregating
+        // it from the parent (1 or 1/2), times the admixture fraction of the ancestry that came from the population (SOS model)
+        // times a factor of 1/2 or 1 which depends on whether the kid has the ancestry of the parent or not (pop_seg_factor).
+        double PAk_par = pseg_prob * pop_seg_factor * AD(k, Ap);
+
+        if(WriteRcouts) Rcout << "PAk_par:" << PAk_par << std::endl;
+
+        if(WriteRcouts) Rcout << "AsApAn:" << As << " " << Ap << " " << An << std::endl;
+
+
+        // get the sum of the log-probabilities of all the genotypes at the diagnostic markers, conditional
+        // on the segregated and population-received ancestries
+        double logPGk_diag = logPGkParentalDiag(As, Ap, lo, hi, isD, AF, IXG);
+
+        double logPGk_var = logPGkParentalVar(As, An, Ap, lo, hi, isD, AF, IXG);
+
+
+
+        // now, we need to multiply the probability of the ancestries segregated to the probs
+        // of the variants and sum that over the ancestries segregated.  Currently a simple
+        // hack to avoid underflow.
+        double TMP = log(PAk_par) + logPGk_diag + logPGk_var;
+        sumOverSeggedHaps += (TMP < -600 ? 0 : PAk_par * exp(logPGk_diag) * exp(logPGk_var));
+
+        //Rcout << "logPGk_diag = " << logPGk_diag << "   logPGk_var = " << logPGk_var << "  " << log(PAk_par) + logPGk_diag + logPGk_var << "  " << PAk_par * exp(logPGk_diag) * exp(logPGk_var) << "  " << sumOverSeggedHaps << "  " << logPparental << std::endl;
+
+        // debug stuff
+        if(debug(0) == 3) {
+          Haplist_k.push_back(kHap);
+          Haplist_p.push_back(pHap);
+          rLo.push_back(lo);
+          rHi.push_back(hi);
+          start_store.push_back(IXG(lo, __start));
+          stop_store.push_back(IXG(lo, __stop));
+          ancvec_k.push_back(IXG(lo, __anck));
+          ancvec_p.push_back(IXG(lo, __ancp));
+          Asvec.push_back(As);
+          Anvec.push_back(An);
+          Apvec.push_back(Ap);
+          popvec.push_back(fromPop);
+          PAk_parList.push_back(PAk_par);
+          logProbDiag.push_back(logPGk_diag);
+          logProbVar.push_back(logPGk_var);
+        }
+
+      } // end loop over popsegidx
+
+    }  // end the for loop over segpidx
+
+    logPparental += (sumOverSeggedHaps == 0 ? 0.0 : log(sumOverSeggedHaps));
+    //////////////////////////////////////////////////////////////
+    // move onto the next segment
+    lo = hi + 1;
+
+    // Accumulate the non-debug results---basically we want one row per candidate
+    // parent, so.
+    if(p != IXG(lo, __pIdx) || lo >= R) {  // Before advancing to a new parent or finishing up completely, record the results and reset the sums
+      ret_pIdx(Prow) = p;
+      ret_logPunrel(Prow) = logPunrel;
+      ret_logPparental(Prow) = logPparental;
+
+      logPunrel = 0.0;     // reset these to accumulate a sum
+      logPparental = 0.0;
+      Prow++; // increment to the next return row
+    }
 
   } // end the while loop over the segments
 
@@ -465,9 +490,8 @@ List pgp_rcpp(
       _["prob_k_SOS"] = PAk_unList,
       _["mIdx"] = mIdx_list,
       _["isDiag"] = isD_list,
-      _["afreq_a"] = fa_vec,
-      _["afreq_b"] = fb_vec,
       _["kid_geno"] = Gk_list,
+      _["par_geno"] = Gp_list,
       _["geno_prob"] = geno_prob_vec,
       _["prob_kid_geno"] = PGk_unList
     );
@@ -476,16 +500,27 @@ List pgp_rcpp(
     ret = List::create(
       _["Lo"] = wrap(rLo),
       _["Hi"] = wrap(rHi),
+      _["start"] = wrap(start_store),
+      _["stop"] = wrap(stop_store),
       _["anc_k"] = ancvec_k,
       _["haplist_k"] = Haplist_k,
       _["anc_p"] = ancvec_p,
       _["haplist_p"] = Haplist_p,
-      _["segvec_p"] = segvec_p,
-      _["p2k1_vec"] = wrap(p2k1_vec),
-      _["p2k2_vec"] = wrap(p2k2_vec),
-      _["pseg_prob"] = wrap(pseg_prob_vec),
-      _["kid_hap_from_pop"] = wrap(kid_hap_from_pop_vec),
-      _["pop2kid_prob"] = wrap(pop2kid_prob_vec)
+      _["Asvec"] = Asvec,
+      _["Anvec"] = Anvec,
+      _["popvec"] = popvec,
+      _["Apvec"] = Apvec,
+      _["PAk_par"] = PAk_parList,
+      _["LogProbDiag"] = logProbDiag,
+      _["LogProbVar"] = logProbVar
+    );
+  }
+  else {
+    ret = List::create(
+      _["kIdx"] = ret_kIdx,
+      _["pIdx"] = ret_pIdx,
+      _["probKidUnrel"] = ret_logPunrel,
+      _["probKidParental"] = ret_logPparental
     );
   }
 

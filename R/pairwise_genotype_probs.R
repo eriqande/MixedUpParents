@@ -96,6 +96,6 @@ pairwise_genotype_probs <- function(
 
   pgp_result <- pgp_rcpp(IXGmat, L$AFmat, L$isDiagVec, L$ADmat, as.integer(debug)) %>% as_tibble()
 
-  return(ret)
+  return(pgp_result)
 
 }

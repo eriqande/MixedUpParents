@@ -30,5 +30,5 @@ TeEx <- list(
  c(1, 0, 1),
  c(0, 1, 1)
 )
-
+ternary2int(TeEx)
 }

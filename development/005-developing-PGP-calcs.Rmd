@@ -1,6 +1,6 @@
 ---
 title: "Developing PGP calculations"
-output: html_document
+output: html_notebook
 date: "2023-08-02"
 ---
 
@@ -13,7 +13,7 @@ which looks like cyclone creek, and I copied the results to this repo at `develo
 relative to this notebook.
 
 Then in 004 in this repo I created the extended segments and saved them so I
-have all this stuff to wor with quickly.
+have all this stuff to work with quickly.
 
 So, I can read that all in now:
 ```{r, message=FALSE, warning=FALSE}
@@ -43,12 +43,11 @@ See 004 for an exploration of the data and extended segments.  Here we just go i
 into preparing for pairwise genotype probs:
 ```{r}
 L <- prepare_for_gpp(V, M, E)
-```
 
 
-Before going further, let's make sure we have the sampled individuals with their year and
-also their 0-based idx's
-```{r}
+# Before going further, let's make sure we have the sampled individuals with their year and
+# also their 0-based idx's
+
 # get the total simulation pedigree
 pedigree <- sim_results$metaQ %>%
   select(ind_time, sex, ped_id:ped_p2) %>%
@@ -66,15 +65,149 @@ pars <- samples %>% filter(ind_time == 1) %>% pull(indiv)
 gpars <- samples %>% filter(ind_time == 2) %>% pull(indiv)
 ```
 
-
-Now, we are in a position to start developing things.  Here define variables
-that can go into interactively running `pairwise_genotype_probs()` (we already
-have L)
+Here I want to get some kids and their parents that were actually sampled.
 ```{r}
-#TMP <- pairwise_genotype_probs(
-#  L = L,
-  kid = "20412" # this one is heavily admixed    #kids[1]
-  par = pars[1:4]
-  debug = 2L
-#)
+sampled_ped <- pedigree %>%
+  mutate(
+    ped_id = ifelse(ped_id %in% kids, ped_id, NA),
+    ped_p1 = ifelse(ped_p1 %in% pars, ped_p1, NA),
+    ped_p2 = ifelse(ped_p2 %in% pars, ped_p2, NA)
+  ) %>%
+  filter(!is.na(ped_id))
+
+sampled_ped
+```
+
+
+Now, we are in a position to start developing and testing things.  Here we run `pairwise_genotype_probs()` with some of the individuals from above.
+
+**BIG NOTE: I am running this having compiled pgp_rcpp.cpp up with
+`const int WriteRcouts = 1;` So that it writes a bunch of stuff out.
+To be honest.  I actually run this all in the regular terminal and then
+I copy the output to another file to be processed with `scripts/munge-Rcouts.awk`**
+
+
+Here is a kid with his two parents and then two randos
+```{r}
+TMP <- pairwise_genotype_probs(
+  L = L,
+  kid = "20014",
+  par = c("19454", "19767", "18003", "18435")
+)
+```
+
+I ran that and then put the output into: `005-stuff/pgp-stdouts/k-20014_p-19454-19767.stdout`.
+Then I can process it in awk like this:
+```sh
+(base) /development/--% (main) pwd
+/Users/eriq/Documents/git-repos/MixedUpParents/development
+
+BASE="k-20014_p-19454-19767_u-18003-180345"
+pbpaste > 005-stuff/pgp-stdouts/$BASE.stdout
+awk -f ../scripts/munge-Rcouts.awk 005-stuff/pgp-stdouts/$BASE.stdout
+mv P_unrel.txt 005-stuff/pgp-stdouts-awked/$BASE.unrel
+mv P_parental.txt  005-stuff/pgp-stdouts-awked/$BASE.parental
+
+```
+
+Now I can read those in and analyze them.
+
+## Reading in the trio and analyzing
+
+```{r}
+ppar <- read_table("005-stuff/pgp-stdouts-awked/k-20014_p-19454-19767_u-18003-180345.parental")
+punrel <- read_table("005-stuff/pgp-stdouts-awked/k-20014_p-19454-19767_u-18003-180345.unrel")
+```
+
+Let's just go ahead and compare the genotype probs that we see for each of these.
+Note that that these are not heavily admixed so their are not a whole lot of
+segged pieces out of the parents, so let's go ahead and filter things down to
+spots where the
+```{r}
+punrel %>% count(anc_p, anc_k)
+```
+
+So, quick check of the variable markers in the 6 6 sections.
+```{r}
+
+
+unrel_var_66 <- punrel %>% select(kIdx, pIdx, anc_k, anc_p, midx, gp, gk, isDiag, geno_prob) %>% filter(anc_k == 6, anc_p == 6, isDiag == 0)
+ppar_var_66 <- ppar %>% select(kIdx, pIdx, anc_k, anc_p, midx, gp, gk, isDiag, geno_prob) %>% filter(anc_k == 6, anc_p == 6, isDiag == 0)
+
+comp_up <- left_join(
+  unrel_var_66,
+  ppar_var_66,
+  by = join_by(kIdx, pIdx, anc_k, anc_p, midx, gp, gk),
+  suffix = c(".u", ".p")
+)
+
+# and make a plot
+ggplot(comp_up, aes(x = geno_prob.u, y = geno_prob.p)) +
+  geom_point() +
+  facet_grid(gp + gk ~ pIdx) +
+  geom_abline(intercept = 0, slope = 1)
+```
+
+OK, count those cases up
+```{r}
+comp_up %>%
+  count(kIdx, pIdx, gp, gk) %>%
+  mutate(Geno = str_c("Par-", gp, "  Kid-", gk)) %>%
+  ggplot(aes(x = Geno, y = n, fill = factor(pIdx))) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+OK.  That looks pretty reasonable...now.  In other words I tracked down a few bugs and it
+seems to be working.  Let's look at the distribution of the Logls...
+```{r}
+ggplot(punrel, aes(x = log(geno_prob))) +
+  geom_histogram() +
+  facet_grid(isDiag ~ gk)
+```
+
+Now, look at it for parental probs.  First for the two actual parents:
+```{r}
+ggplot(ppar %>% filter(pIdx %in% c(1407, 1547)), aes(x = log(geno_prob))) +
+  geom_histogram() +
+  facet_grid(isDiag ~ gk)
+```
+
+
+And then for the two non parents.
+```{r}
+ggplot(ppar %>% filter(!(pIdx %in% c(1407, 1547))), aes(x = log(geno_prob))) +
+  geom_histogram() +
+  facet_grid(isDiag ~ gk)
+```
+
+The really cool thing here is that we are getting the correct results for the actual LogLs, too.
+In other words, the parents have much high LogLRatios.
+
+
+## Checking on all the individuals 
+
+I think it is time to recompile that thing with `const int WriteRcouts = 0;` and
+run this on a lot of indivs:
+```{r}
+all_comps <- lapply(kids[1:100], function(k) {
+  pairwise_genotype_probs(
+  L = L,
+  kid = k,
+  par = pars
+) %>%
+  mutate(logl_ratio = probKidParental - probKidUnrel)
+})
+
+
+check <- all_comps %>%
+  bind_rows() %>%
+  arrange(desc(logl_ratio)) %>%
+  left_join(L$ir_E$iKey, by = join_by(kIdx == idx)) %>%
+  rename(kidsample = indiv) %>%
+  left_join(L$ir_E$iKey, by = join_by(pIdx == idx)) %>%
+  rename(parsample = indiv) %>%
+  left_join(pedigree, by = join_by(kidsample == ped_id))
+
+ggplot(check, aes(x = logl_ratio)) + geom_histogram() + facet_wrap(~logl_ratio > 0, scales = "free")
 ```

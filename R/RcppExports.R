@@ -31,6 +31,10 @@ intersect_ancestry_intervals_rcpp <- function(grp1, grp2, nC, V1, V2, X1, X2, nv
     .Call('_MixedUpParents_intersect_ancestry_intervals_rcpp', PACKAGE = 'MixedUpParents', grp1, grp2, nC, V1, V2, X1, X2, nv1, nv2)
 }
 
+#' Helper function to compute the sum of the log-probs of the offspring genotypes
+#' at the VARIABLE markers given the parental genotypes
+NULL
+
 #' Helper function to turn trits to a vector of one or two ancestries
 #'
 #' As a reminder:
