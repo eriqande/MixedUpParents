@@ -109,7 +109,7 @@ pgp_result %>%
   count(anc_k, anc_p, haplist_k, haplist_p)
 ```
 
-So, everything is checking out on debug == 0.  Let's continue sussing things out.
+So, everything is checking out on debug == 1.  Let's continue sussing things out.
 
 
 ## Debug ==  2.  Checking up on the genotype probabilities given the kid is unrelated to the parent
@@ -140,7 +140,7 @@ sc1 <- pgp_rcpp(IXG, AF, isD, AD, as.integer(debug)) %>%
 
 # See that the genotype probs are correct
 sc1 %>%
-  count(kid_geno, geno_prob)
+  count(par_geno, kid_geno, geno_prob)
 
 ```
 
@@ -169,14 +169,14 @@ sc2 <- pgp_rcpp(IXG, AF, isD, AD, as.integer(debug)) %>%
 
 # See that the genotype probs are correct
 sc2_1 <- sc2 %>%
-  count(anc_k, kid_geno, geno_prob)
+  count(anc_k, par_geno, kid_geno, geno_prob)
 ```
 
 One simple check is that the genotype probabilities sum to one within each ancestry:
 ```{r}
 sc2_1 %>%
-  filter(kid_geno != -1) %>%
-  group_by(anc_k) %>%
+  filter(kid_geno != -1 & par_geno != -1) %>% 
+  group_by(anc_k, par_geno) %>%
   summarise(tot_prob = sum(geno_prob))
 ```
 
@@ -186,7 +186,10 @@ AF[1,]
 ```
 Now we can spot check things:
 ```{r}
-sc2_1
+sc2_1 %>%
+  filter(kid_geno != -1 & par_geno != -1) %>%
+  count(anc_k, kid_geno, geno_prob)
+  
 ```
 
 ```{r}
@@ -203,9 +206,86 @@ sc2_1
 0.2 * 0.4
 ```
 Yes!  This stuff all checks out. Cool.  It is now time to proceed to the probabilities
-under cases when different ancestries are being segregated from the parent.  
+under the parent-offspring hypothesis, which necessarily involves cases when
+different ancestries are being segregated from the parent.  
 
 
-## Debug == 3. Probabilities conditional on the segregated haplotype from the parent
+## Debug == 3. Probabilities conditional on the segregated haplotypes from both the parent and the population
 
-Here we need to check both the SOS probabilities and the genotype probabilities.  
+Here we will check out the SOS probabilities.  
+
+First, run it with debug == 3
+```{r}
+debug <- 3L
+sc_d3_1 <- pgp_rcpp(IXG, AF, isD, AD, as.integer(debug)) %>% 
+  as_tibble()
+```
+
+
+### A quick sanity check test
+
+I am going to put one variable marker in per intersected segment and I will
+change the genotypes. I should be able to do that like this:
+```{r}
+IXtib2 <- expand_grid(
+  kIdx = 0L,
+  pIdx = c(1L),
+  cIdx = c(0L),
+  gk = -1:2,
+  gp = -1:2,
+  anck = as.integer(c(2, 4, 6, 10, 12, 18)),
+  ancp = as.integer(c(2, 4, 6, 10, 12, 18)),
+  isDiag = 0:1
+) %>%
+  mutate(
+    start = seq(1e5L, by = 1e5L, length.out = n()),
+    stop = seq(2e5L, by = 1e5L, length.out = n()) - 1L
+  ) %>%
+  group_by(pIdx) %>%
+  mutate(
+    mIdx = (1:n()) - 1L, 
+    .before = gk
+  ) %>%
+  group_by(start, stop) %>%
+  mutate(
+    pos = start + seq(100L, by = 100L, length.out = n()),
+    .after = mIdx
+  ) %>%
+  ungroup()
+
+IXtib2 <- IXtib2[, names(IXtib)]
+```
+
+Then proceed with all allele frequencies equal to 0.5 in all populations, 
+so the admixture does not factor into things at all for variable markers.
+```{r}
+IXG2 <- IXtib2 %>% select(-isDiag) %>% as.matrix()
+AF2 <- makeFreqs(IXtib2)
+isD <- IXtib2 %>% filter(kIdx == 0, pIdx == 1) %>% pull(isDiag)
+AD <- AD[1:2,]
+debug <- 3L  
+
+pgp_result <- pgp_rcpp(IXG2, AF2, isD, AD, as.integer(debug)) %>% 
+  as_tibble()
+
+gps_included <- pgp_result %>%
+  mutate(
+    prob_diag = exp(LogProbDiag),
+    prob_var = exp(LogProbVar)
+  ) %>%
+  left_join(., IXtib2 %>% select(start, stop, gk, gp, anck, ancp, isDiag), by = join_by(start, stop, anc_k == anck, anc_p == ancp)) 
+
+gps_included %>%
+  count(isDiag, gp, gk, prob_var) %>%
+  arrange(prob_var)
+```
+That all checks out. 
+
+Now, look at that for the diagnostic ones.
+```{r}
+gps_included %>%
+  count(isDiag, gp, gk, prob_diag) %>%
+  arrange(prob_diag)
+```
+That looks like it should.  OK.  So, maybe we are ready to try to finish up the
+function.
