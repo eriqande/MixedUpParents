@@ -1,4 +1,4 @@
-#' Calculate the genotype probablities for a pair of individuals
+#' Calculate the genotype probabilities for pairs of individuals
 #'
 #' More description later
 #' @param L the list output from `prepare_for_gpp()`.
