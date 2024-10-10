@@ -52,6 +52,8 @@ showing the admixture fraction.}
 
 \item{catOrd}{the order in which you want the colors of the different full
 ancestry pattern categories to appear in the columns.}
+
+\item{fill_scale}{desired fill scale.  Uses a color brewer palette by default}
 }
 \description{
 Just a small function to make some summaries of

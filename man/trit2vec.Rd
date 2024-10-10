@@ -6,6 +6,9 @@
 \usage{
 trit2vec(t)
 }
+\arguments{
+\item{t}{the trit to convert to a vector}
+}
 \description{
 As a reminder:
 \itemize{

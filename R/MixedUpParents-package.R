@@ -1,8 +1,6 @@
-#' My package documentation
-#'
-#' bla bla, need to write more here
-#' @name MixedUpParents
-#' @docType package
-#' @importFrom Rcpp evalCpp
-#' @useDynLib MixedUpParents
+#' @keywords internal
+"_PACKAGE"
+
+## usethis namespace: start
+## usethis namespace: end
 NULL

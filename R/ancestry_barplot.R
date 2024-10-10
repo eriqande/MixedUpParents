@@ -35,6 +35,7 @@
 #' showing the admixture fraction.
 #' @param catOrd the order in which you want the colors of the different full
 #' ancestry pattern categories to appear in the columns.
+#' @param fill_scale desired fill scale.  Uses a color brewer palette by default
 #' @export
 ancestry_barplot <- function(
   E,

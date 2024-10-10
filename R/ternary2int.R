@@ -7,6 +7,7 @@
 #' 0,9,18 position, etc.
 #' @return An integer vector
 #' @details This assumes list input and uses lapply to return a vector
+#' @export
 #' @examples
 #' TeEx <- list(
 #'  c(2, 0, 0),

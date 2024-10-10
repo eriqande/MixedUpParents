@@ -190,14 +190,14 @@ In other words, the parents have much high LogLRatios.
 I think it is time to recompile that thing with `const int WriteRcouts = 0;` and
 run this on a lot of indivs:
 ```{r}
-all_comps <- lapply(kids[1:100], function(k) {
+all_comps <- parallel::mclapply(kids, function(k) {
   pairwise_genotype_probs(
   L = L,
   kid = k,
   par = pars
 ) %>%
   mutate(logl_ratio = probKidParental - probKidUnrel)
-})
+}, mc.cores = 8)
 
 
 check <- all_comps %>%
@@ -207,7 +207,19 @@ check <- all_comps %>%
   rename(kidsample = indiv) %>%
   left_join(L$ir_E$iKey, by = join_by(pIdx == idx)) %>%
   rename(parsample = indiv) %>%
-  left_join(pedigree, by = join_by(kidsample == ped_id))
+  left_join(pedigree, by = join_by(kidsample == ped_id)) %>%
+  mutate(
+    is_a_parent = par_id == ped_p1 | par_id == ped_p2
+  )
 
-ggplot(check, aes(x = logl_ratio)) + geom_histogram() + facet_wrap(~logl_ratio > 0, scales = "free")
+ggplot(check, aes(x = logl_ratio, fill = is_a_parent)) + geom_histogram() + facet_wrap(~logl_ratio > 0, scales = "free")
 ```
+
+And we can also look at this like this:
+```{r}
+ggplot(check, aes(x = logl_ratio, fill = is_a_parent)) + geom_histogram() + xlim(-10, 125)
+```
+
+And this is pretty conclusive.  It is totally working here.  So....why am I getting
+wonky results with the other simulated data set?  I must have screwed something up.
+Time to track it all down!

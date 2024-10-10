@@ -2,7 +2,7 @@
 % Please edit documentation in R/pairwise_genotype_probs.R
 \name{pairwise_genotype_probs}
 \alias{pairwise_genotype_probs}
-\title{Calculate the genotype probablities for a pair of individuals}
+\title{Calculate the genotype probabilities for pairs of individuals}
 \usage{
 pairwise_genotype_probs(L, kid, par, debug = 0L)
 }
@@ -14,13 +14,13 @@ as the kid.}
 
 \item{par}{a vector of the actual IDs of the individuals to be treated as parents}
 
-\item{debug}{an integer flag  debug\link{1} == 0 means return no debug information.
+\item{debug}{an integer flag. debug1 = 0 means return no debug information.
 Otherwise the function returns a list with a lot of extra information that can be used
-to verify that the calculations are being done correctly. If debug\link{1} == 1, then information
+to verify that the calculations are being done correctly. If debug = 1, then information
 is returned at the rate of one row per segment, and no genotype information gets
-returned.  If debug\link{1} == 2, then information is returned at one row per marker, and it
+returned.  If debug = 2, then information is returned at one row per marker, and it
 includes the genotype probabilities for each marker in the unrelated case.
-If debug\link{1} == 3 then information is returned with one row for each marker and each
+If debug = 3 then information is returned with one row for each marker and each
 distinct value of the ancestry of the haplotype segregated from the parent. (This
 allows us to check the calculations for the probability of genotypes given the
 ancestries and the segregated haplotype). \strong{NOTE:} debug > 1 runs pretty slowly

@@ -44,6 +44,8 @@ const int WriteRcouts = 0;
 //'
 //' It is important to understand that this returns the ancestries in base-0.  So,
 //' ancestry 1 is called 0, ancestry 2 is called 1, etc.
+//'
+//' @param t the trit to convert to a vector
 //' @export
 //' @examples
 //' trits <- c(2, 4, 6, 10, 12, 18)
@@ -146,9 +148,9 @@ double logPGkParentalDiag(
 }
 
 
-//' Helper function to compute the sum of the log-probs of the offspring genotypes
-//' at the VARIABLE markers given the parental genotypes
- double logPGkParentalVar(
+// Helper function to compute the sum of the log-probs of the offspring genotypes
+// at the VARIABLE markers given the parental genotypes
+double logPGkParentalVar(
      int As, // ancestry segregated from the parent
      int An, // ancestry of the segment *not* segregated by the parent
      int Ap, // ancestry received from the population
