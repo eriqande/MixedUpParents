@@ -3,6 +3,7 @@
 export(admix_fract_from_extended_segs)
 export(ancestral_n_segments)
 export(ancestry_barplot)
+export(calc_HOT)
 export(chromo_segs)
 export(estimate_allele_freqs_EM)
 export(extend_ancestral_segments_3)
