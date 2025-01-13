@@ -97,7 +97,7 @@ const int WriteRcouts = 0;
  double calculatePAK_mz(const IntegerVector&kHap, const IntegerVector& pHap) {
    int kd = kHap.length();
    int pd = pHap.length();
-   double no_match = 0.001;  // this is our fairly arbitrary penalty for not matching ancestries.
+   double no_match = 0.01;  // this is our fairly arbitrary penalty for not matching ancestries.
                              // It could be 0, but the ancestries are inferred from marker data, so we let
                              // That marker data do most of the talking in the PGK_mz.
 
@@ -151,17 +151,41 @@ const int WriteRcouts = 0;
 
 
  // Helper function to calculate genotype probabilities for mz case.
+ // HapsMatch is 1 if kid and candidate have matching ancestries at the segement, and 0 otherwise.
  // g is the genotype (0, 1 or 2) of the kid
  // gp is the genotype of the parent
  // This is super simple: if both gene copies are IBD, then any difference between g and gp
  // get attributed to genotyping error, whether or not the marker is diagnostic or variable.
- double calculatePGk_mz(int g, int gp, int midx, const IntegerVector& isDiag) {
-   double geno_prob = 1.0;
-   if(g == -1 || (gp == -1 && isDiag(midx) == 0)) return(1.0);  // missing data case.  Never include if kid is missing.  If parent genotype is missing and it is not a Diagnostic SNP, we also do not include it.
+ double calculatePGk_mz(int HapsMatch,  int g, int gp, int midx, const IntegerVector& isDiag) {
 
-   if(g != gp) return(epsilon);
+   if(g == -1) {
+     return(1.0);
+   }
+   if(gp == -1) {
+     if(isDiag(midx) == 0) { // if it's a variable marker
+       return(1.0);
+     }
+     else { // if it's a diagnostic marker
+       if(!HapsMatch) {
+         return(0.005);  // Hardwiring this in here for now.  Sort of dangerous
+       }
+       else {
+         return(1.0);  // no penalty for missing data when the haplotypes match.
+       }
+     }
+   }
+   // if control gets to hear, it means that neither the parent nor kid are missing data
+   if(g != gp) {
+     if(isDiag(midx) == 0) {
+       return(epsilon);
+     }
+     else{
+       return(0.005);
+     }
+   }
 
-   return geno_prob;
+   // if control gets here, then neither genotype is missing and they both match and it just returns 1.0
+   return(1.0);
  }
 
 
@@ -428,7 +452,7 @@ const int WriteRcouts = 0;
 
 
        // FSADD
-       double geno_prob_mz = calculatePGk_mz(g, gpar, midx, isD);
+       double geno_prob_mz = calculatePGk_mz((PAk_mz > 0.7), g, gpar, midx, isD);
        PGk_mz *= geno_prob_mz;
        logPGk_mz += log(geno_prob_mz);
        if(WriteRcouts) Rcout << "PGk_mz:"<< m << " " << midx << " " << isD(midx)  << " "<< g << " " << gpar << " " << geno_prob_mz << std::endl;
@@ -542,10 +566,14 @@ const int WriteRcouts = 0;
      logPparental += (sumOverSeggedHaps == 0 ? 0.0 : log(sumOverSeggedHaps));
 
 
-     // Do the calculation for full sibling here, too.
-     logPfull_sib = log(0.25 * (PAk_un * exp(logPGk_un)) +
+     // Do the calculation for full sibling here, too.  This is going to be conditional
+     // on them already looking like parents, so, presumably there are few (or no) segments
+     // with 0 gene copies shared.
+     logPfull_sib += log(
+       0.25 * (PAk_un * exp(logPGk_un)) +
        0.5 * sumOverSeggedHaps +
-       0.25 * (PAk_mz * exp(logPGk_mz)));
+       0.25 * (PAk_mz * exp(logPGk_mz))
+     );
 
 
      //////////////////////////////////////////////////////////////
