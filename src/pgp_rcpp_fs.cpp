@@ -86,6 +86,35 @@ const int WriteRcouts = 0;
  }
 
 
+ // FSADD
+ // Helper fucntion to calculate the SOS probs in the 2-gene-copes IBD (mz) case.
+ // This is for calculating probs given full sibling relationships.
+ // kHap is the hap vector (from trit2vec) of the kid
+ // pHap is the hap vector of the candidate parent
+ // This is pretty simple---either the kHap and pHap match or they don't.  If they
+ // dont match, we give it a penalty of 1/1000, but we will depend on the actual
+ // diagnostic markers that are in there to pull down the probability most of all
+ double calculatePAK_mz(const IntegerVector&kHap, const IntegerVector& pHap) {
+   int kd = kHap.length();
+   int pd = pHap.length();
+   double no_match = 0.001;  // this is our fairly arbitrary penalty for not matching ancestries.
+                             // It could be 0, but the ancestries are inferred from marker data, so we let
+                             // That marker data do most of the talking in the PGK_mz.
+
+   if(kd != pd) {
+     return(no_match);
+   }
+   else {
+     for(int d=0; d < kd; d++) {
+       if(kHap[d] != pHap[d]) return(no_match);
+     }
+   }
+
+   // if it gets down here, we just return 1.0, because they match
+   return(1.0);
+ }
+
+
 
 
  // Helper function to calculate genotype probabilities for unrelated case.  We include
@@ -94,14 +123,18 @@ const int WriteRcouts = 0;
  // kHap is as it is in calculatePAkUnrelated
  // kd is length of kHap
  // g is the genotype (0, 1 or 2) of the kid
+ // gp is the genotype of the parent
+ // midx is the marker index
+ // isDiag is a vector.  0 = variable marker, 1 = diagnostic marker
+ // AF matrix of allele frequencies
  double calculatePGkUnrelated(const IntegerVector& kHap, int kd, int g, int gp, int midx, const IntegerVector& isDiag, const NumericMatrix& AF) {
    double geno_prob = 1.0;
    if(g == -1 || (gp == -1 && isDiag(midx) == 0)) return(1.0);  // missing data case.  Never include if kid is missing.  If parent genotype is missing and it is not a Diagnostic SNP, we also do not include it.
-   if (kd == 1) {
+   if (kd == 1) {  // if the kid carries just one ancestry at this marker
      int a = kHap(0);
-     double fa = AF(midx, a);
-     geno_prob = pow(fa, g) * pow(1 - fa, 2 - g) * (1 + (g == 1));
-   } else if (kd == 2) {
+     double fa = AF(midx, a);  // frequency of the 1 allele on the a background
+     geno_prob = pow(fa, g) * pow(1 - fa, 2 - g) * (1 + (g == 1));  // gives standard HWE genotype prob
+   } else if (kd == 2) { // if there are two ancestries in the individual
      int a = kHap(0);
      int b = kHap(1);
      double fa = AF(midx, a);
@@ -114,6 +147,30 @@ const int WriteRcouts = 0;
    return geno_prob;
  }
 
+
+
+
+ // Helper function to calculate genotype probabilities for mz case.
+ // g is the genotype (0, 1 or 2) of the kid
+ // gp is the genotype of the parent
+ // This is super simple: if both gene copies are IBD, then any difference between g and gp
+ // get attributed to genotyping error, whether or not the marker is diagnostic or variable.
+ double calculatePGk_mz(int g, int gp, int midx, const IntegerVector& isDiag) {
+   double geno_prob = 1.0;
+   if(g == -1 || (gp == -1 && isDiag(midx) == 0)) return(1.0);  // missing data case.  Never include if kid is missing.  If parent genotype is missing and it is not a Diagnostic SNP, we also do not include it.
+
+   if(g != gp) return(epsilon);
+
+   return geno_prob;
+ }
+
+
+
+
+
+
+
+
  // Helper function to calculate the prob of the kid's genotype (gk)
  // given a parental relationship and
  // conditional on the ancestry of the segment segregated from the parent (As),
@@ -123,7 +180,7 @@ const int WriteRcouts = 0;
  // Because we have inferred the ancestry of the segments using markers in the interval,
  // whether they are missing or not in the parent, we don't actually have to explicitly
  // account for the ancestry of the parent at each marker.  And we do not omit
- // markers that are not missing in the kid but are missing in the parent, because we
+ // markers that are not missing in the kid but are missing in the parent, because
  // then it is commensurate to the PGkUnrelated case.
  double logPGkParentalDiag(
      int As, // ancestry segregated from the parent
@@ -163,7 +220,7 @@ const int WriteRcouts = 0;
      int Ap, // ancestry received from the population
      int lo, // lo index of markers in the segment
      int hi, // hi index of markers in the segment
-     const IntegerVector& isDiag, // vector of 1 of marker is a "diagnostic" marker, and 0 otherwise
+     const IntegerVector& isDiag, // vector of 1 if marker is a "diagnostic" marker, and 0 otherwise
      const NumericMatrix& AF, // matrix of all allele frequencies
      const IntegerMatrix& IXG // holds the genotypes
  ) {
@@ -273,14 +330,16 @@ const int WriteRcouts = 0;
    int lo,hi;  // lo and hi are for the first and last markers in a segment
    int kd, pd; // The number of distinct ancestries in the kid or parent
    double PGk_un;  // For storing the prob of the genotypes given the ancestry (and kid unrelated)
+   double PGk_mz;  // For storing the prob of the genotypes given the ancestry (and kid sharing 2 gene copies IBD)
    List ret;  // for returning the values
    int NumParents = unique(IXG(_, __pIdx)).length();
    int theKidx = IXG(0, __kIdx);
    int Prow = 0;  // tells us which row of the return vectors we are on
-   double logPunrel = 0.0, logPparental = 0.0;  // for accumulating sums over segments within individuals
+   double logPunrel = 0.0, logPparental = 0.0, logPfull_sib = 0.0;  // for accumulating sums over segments within individuals
+   double probFS; // for the probability of being an FS at a single segment
    // preallocate to the return vectors
    IntegerVector ret_kIdx(NumParents, theKidx), ret_pIdx(NumParents, -1);
-   NumericVector ret_logPunrel(NumParents, 0.0), ret_logPparental(NumParents, 0.0);
+   NumericVector ret_logPunrel(NumParents, 0.0), ret_logPparental(NumParents, 0.0), ret_logPfull_sib(NumParents, 0.0);
 
 
    // For storing debug mode stuff and other things
@@ -339,22 +398,42 @@ const int WriteRcouts = 0;
      double PAk_un = calculatePAkUnrelated(kHap, AD, k);
      if(WriteRcouts) Rcout << "PAk_un: "<< PAk_un << std::endl;
 
+     // FSADD
+     // And here we can calculate the probability of the kid having the ancestries in
+     // kHap given that it shares 2 gene copies IBD with the candidate parent (i.e., if
+     // it were like a monozygous twin). This will let us calculate full-sib-relationship likelihoods
+     double PAk_mz = calculatePAK_mz(kHap, pHap);
+
+
      // Then after we set the sack-o-segs contribution of the ancestry of the segments
      // we can cycle over the markers from lo to hi and accumulate the product of
-     // the genotype probability of each, conditional on the kid's ancestry. (Still in the
-     // Unrelated case).
+     // the genotype probability of each, conditional on the kid's ancestry, in the unrelated case,
+     // and on the candidate parent's ancestry in the 2-gene-copies IBD (mz) case.  (parental
+     // stuff is done later, as it is more complicated)
      PGk_un = 1.0;  // to accumulate the product over loci
+     PGk_mz = 1.0;
+
      double logPGk_un = 0.0; // to accumulate the product as a sum of logs
+     double logPGk_mz = 0.0;
+
      for(int m = lo; m <= hi; m++) {
        int g = IXG(m, __gk);
        int gpar = IXG(m, __gp);
        int midx = IXG(m, __mIdx);
 
        double geno_prob = calculatePGkUnrelated(kHap, kd, g, gpar, midx, isD, AF);
-       PGk_un*= geno_prob;  // accumulate the product
+       PGk_un *=  geno_prob;  // accumulate the product
        logPGk_un += log(geno_prob);
-
        if(WriteRcouts) Rcout << "PGk_un:"<< m << " " << midx << " " << isD(midx)  << " "<< g << " " << gpar << " " << geno_prob << std::endl;
+
+
+       // FSADD
+       double geno_prob_mz = calculatePGk_mz(g, gpar, midx, isD);
+       PGk_mz *= geno_prob_mz;
+       logPGk_mz += log(geno_prob_mz);
+       if(WriteRcouts) Rcout << "PGk_mz:"<< m << " " << midx << " " << isD(midx)  << " "<< g << " " << gpar << " " << geno_prob_mz << std::endl;
+
+
 
        if(debug(0) == 2) {
          rLo.push_back(lo);
@@ -374,7 +453,7 @@ const int WriteRcouts = 0;
      } // close loop over markers
      logPunrel += log(PAk_un) + logPGk_un;
 
-     /////////////////// Done with the Unrelated Case Probability calcs ///////////
+     /////////////////// Done with the Unrelated and MZ Case Probability calcs ///////////
 
 
      ////////////////////////////////////////////////////////////////
@@ -461,6 +540,14 @@ const int WriteRcouts = 0;
      }  // end the for loop over segpidx
 
      logPparental += (sumOverSeggedHaps == 0 ? 0.0 : log(sumOverSeggedHaps));
+
+
+     // Do the calculation for full sibling here, too.
+     logPfull_sib = log(0.25 * (PAk_un * exp(logPGk_un)) +
+       0.5 * sumOverSeggedHaps +
+       0.25 * (PAk_mz * exp(logPGk_mz)));
+
+
      //////////////////////////////////////////////////////////////
      // move onto the next segment
      lo = hi + 1;
@@ -471,9 +558,11 @@ const int WriteRcouts = 0;
        ret_pIdx(Prow) = p;
        ret_logPunrel(Prow) = logPunrel;
        ret_logPparental(Prow) = logPparental;
+       ret_logPfull_sib(Prow) = logPfull_sib;
 
        logPunrel = 0.0;     // reset these to accumulate a sum
        logPparental = 0.0;
+       logPfull_sib = 0.0;
        Prow++; // increment to the next return row
      }
 
@@ -529,7 +618,8 @@ const int WriteRcouts = 0;
        _["kIdx"] = ret_kIdx,
        _["pIdx"] = ret_pIdx,
        _["probKidUnrel"] = ret_logPunrel,
-       _["probKidParental"] = ret_logPparental
+       _["probKidParental"] = ret_logPparental,
+       _["probKidFullSib"] = ret_logPfull_sib
      );
    }
 
