@@ -364,7 +364,10 @@ List pgp_rcpp(
    // preallocate to the return vectors
    IntegerVector ret_kIdx(NumParents, theKidx), ret_pIdx(NumParents, -1);
    NumericVector ret_logPunrel(NumParents, 0.0), ret_logPparental(NumParents, 0.0), ret_logPfull_sib(NumParents, 0.0);
+   int sharedDiag=0, sharedVar=0;  // for tallying the number of diagnostic and variable markers at
+                                   // which both kid and candidate parent have non-missing data.
 
+   IntegerVector ret_sharedDiag(NumParents, 0), ret_sharedVar(NumParents, 0);  // for returning the number of shared markers for each pair
 
    // For storing debug mode stuff and other things
    std::vector<int> rLo, rHi, Gk_list, Gp_list, mIdx_list, isD_list, start_store, stop_store;
@@ -444,6 +447,14 @@ List pgp_rcpp(
        int g = IXG(m, __gk);
        int gpar = IXG(m, __gp);
        int midx = IXG(m, __mIdx);
+
+       // count up the number or markers not missing at both
+       if(g != -1 && gpar != -1) {
+         if(isD(midx) == 1)
+           sharedDiag++;
+         else
+           sharedVar++;
+       }
 
        double geno_prob = calculatePGkUnrelated(kHap, kd, g, gpar, midx, isD, AF);
        PGk_un *=  geno_prob;  // accumulate the product
@@ -587,10 +598,14 @@ List pgp_rcpp(
        ret_logPunrel(Prow) = logPunrel;
        ret_logPparental(Prow) = logPparental;
        ret_logPfull_sib(Prow) = logPfull_sib;
+       ret_sharedDiag(Prow) = sharedDiag;
+       ret_sharedVar(Prow) = sharedVar;
 
        logPunrel = 0.0;     // reset these to accumulate a sum
        logPparental = 0.0;
        logPfull_sib = 0.0;
+       sharedDiag = 0;
+       sharedVar = 0;
        Prow++; // increment to the next return row
      }
 
@@ -647,7 +662,9 @@ List pgp_rcpp(
        _["pIdx"] = ret_pIdx,
        _["probKidUnrel"] = ret_logPunrel,
        _["probKidParental"] = ret_logPparental,
-       _["probKidFullSib"] = ret_logPfull_sib
+       _["probKidFullSib"] = ret_logPfull_sib,
+       _["nonMissingDiag"] = ret_sharedDiag,
+       _["nonMissingVar"] = ret_sharedVar
      );
    }
 
