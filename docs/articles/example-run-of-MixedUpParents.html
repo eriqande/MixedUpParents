@@ -191,10 +191,8 @@ For a particular segment
 <math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mi>s</mi><annotation encoding="application/x-tex">s</annotation></semantics></math>,
 the ancestry state is written
 <math display="inline" xmlns="http://www.w3.org/1998/Math/MathML"><semantics><msubsup><mi>𝒯</mi><mi>w</mi><mrow><mo stretchy="false" form="prefix">(</mo><mi>s</mi><mo stretchy="false" form="postfix">)</mo></mrow></msubsup><annotation encoding="application/x-tex">\mathscr{T}_w^{(s)}</annotation></semantics></math>.</p>
-<p>This step, and the extension step that follows, are the slowest parts
-of the workflow. On the full simulated data set they can take several
-minutes. The extension step also requires <code>bedtools</code> to be
-available on the shell path.</p>
+<p>This step, and the extension step that follows, take a little time,
+but not as much as the calculating the pairwise likelihoods later.</p>
 <div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">AS</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/ancestral_n_segments.html">ancestral_n_segments</a></span><span class="op">(</span></span>
 <span>  D <span class="op">=</span> <span class="va">TW</span><span class="op">$</span><span class="va">spp_diag_snps</span>,</span>
@@ -237,7 +235,7 @@ internal labels <code>A</code>, <code>B</code>, and <code>C</code>.</p>
 <span>  <span class="va">AS</span>,</span>
 <span>  species_levels <span class="op">=</span> <span class="va">species_levels</span></span>
 <span><span class="op">)</span></span>
-<span><span class="co">#&gt; Extending ancestral segments using bedtools in temp directory: /var/folders/ln/5brnn1wx0vj58fhlbbdjm8h40000gp/T//RtmpuxF5iu/file1093646a48430</span></span>
+<span><span class="co">#&gt; Extending ancestral segments using bedtools in temp directory: /var/folders/ln/5brnn1wx0vj58fhlbbdjm8h40000gp/T//Rtmp9KPVId/file70d69fec3c2</span></span>
 <span></span>
 <span><span class="va">E</span></span>
 <span><span class="co">#&gt; <span style="color: #949494;"># A tibble: 116,798 × 5</span></span></span>

@@ -53,8 +53,38 @@
   <main id="main" class="col-md-9"><div class="section level1">
 <div class="page-header"><h1 id="mixedupparents">MixedUpParents<a class="anchor" aria-label="anchor" href="#mixedupparents"></a>
 </h1></div>
-<p>R package in development for doing parentage inference in admixed populations when you have an abundance of species-specific alleles, and also a lot of alleles that are not fixed, but at different frequencies on the different backgrounds.</p>
 </div>
+<div class="section level1">
+<h1 id="mixedupparents-1">MixedUpParents<a class="anchor" aria-label="anchor" href="#mixedupparents-1"></a>
+</h1>
+<p><code>MixedUpParents</code> is an R package for genetic parentage assignment in admixed populations. It was developed for the paper <strong>“MixedUpParents: A New and Improved Method for Genetic Parentage Assignment in Admixed Populations.”</strong></p>
+<p>The method combines ancestry information from species-diagnostic markers with genotype probabilities at markers that are variable across ancestry backgrounds. It is designed for data sets in which individuals may have mosaic ancestry and where parentage inference benefits from explicitly accounting for those ancestry tracts.</p>
+<div class="section level2">
+<h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
+</h2>
+<p><code>MixedUpParents</code> is currently available only from GitHub:</p>
+<div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_github.html" class="external-link">install_github</a></span><span class="op">(</span><span class="st">"eriqande/MixedUpParents"</span><span class="op">)</span></span></code></pre></div>
+<p>The package uses <code>Rcpp</code> for computationally intensive genotype-probability calculations.</p>
+</div>
+<div class="section level2">
+<h2 id="external-dependency">External Dependency<a class="anchor" aria-label="anchor" href="#external-dependency"></a>
+</h2>
+<p><code>MixedUpParents</code> requires <code>bedtools</code> as an external command-line dependency. The <code>bedtools</code> executable must be installed and available on your shell <code>PATH</code> before running workflows that extend ancestry segments.</p>
+<p>You can check whether R can find it with:</p>
+<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Sys.which.html" class="external-link">Sys.which</a></span><span class="op">(</span><span class="st">"bedtools"</span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="documentation">Documentation<a class="anchor" aria-label="anchor" href="#documentation"></a>
+</h2>
+<p>For a primer on how to use the package, see the online pkgdown documentation:</p>
+<p><a href="https://eriqande.github.io/MixedUpParents/" class="external-link uri">https://eriqande.github.io/MixedUpParents/</a></p>
+<p>In particular, the example vignette walks through a complete simulated-data run:</p>
+<p><a href="https://eriqande.github.io/MixedUpParents/articles/example-run-of-MixedUpParents.html" class="external-link uri">https://eriqande.github.io/MixedUpParents/articles/example-run-of-MixedUpParents.html</a></p>
+</div>
+</div>
+
   </main><aside class="col-md-3"><div class="license">
 <h2 data-toc-skip>License</h2>
 <ul class="list-unstyled">

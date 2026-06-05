@@ -107,9 +107,8 @@ In the notation of the paper, these segments are the empirical version of the
 ancestry tracts \(\mathscr{T}_w\) for individual \(w\). For a particular segment
 \(s\), the ancestry state is written \(\mathscr{T}_w^{(s)}\).
 
-This step, and the extension step that follows, are the slowest parts of the
-workflow. On the full simulated data set they can take several minutes. The
-extension step also requires `bedtools` to be available on the shell path.
+This step, and the extension step that follows, take a little time, but not as
+much as the calculating the pairwise likelihoods later.
 
 ```{r ancestral-n-segments}
 AS <- ancestral_n_segments(
