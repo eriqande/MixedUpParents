@@ -8,3 +8,5 @@ src/*.dll
 .DS_Store
 gplot.pdf
 E-gplot.pdf
+.positai
+inst/doc
